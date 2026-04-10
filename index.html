@@ -1000,6 +1000,29 @@
   </div>
 </div>
 
+<!-- MOVE DATE MODAL -->
+<div class="modal-overlay" id="move-modal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <h3 id="move-modal-title">Move to Different Date</h3>
+    <p style="font-size:12px;color:var(--text-muted);margin-bottom:16px;" id="move-modal-desc"></p>
+    <div class="form-group">
+      <label>New Date</label>
+      <input type="date" id="move-date">
+    </div>
+    <div class="form-group" id="move-status-group">
+      <label>Status on New Date</label>
+      <div class="status-toggle">
+        <div class="status-opt pending" id="move-status-pending">Pending</div>
+        <div class="status-opt expected selected" id="move-status-expected">Expected</div>
+        <div class="status-opt completed" id="move-status-completed">Completed</div>
+      </div>
+    </div>
+    <button class="btn btn-primary" id="btn-confirm-move">Move Transaction</button>
+    <button class="btn btn-secondary" id="btn-cancel-move" style="margin-top:8px;">Cancel</button>
+  </div>
+</div>
+
 <!-- ADD CARD MODAL -->
 <div class="modal-overlay" id="card-modal">
   <div class="modal">
@@ -1059,6 +1082,10 @@ let editingBillId = null;
 let editingCardId = null;
 let txnType = 'expense';
 let txnStatus = 'pending';
+let movingTxnId = null;     // id of real txn being moved
+let movingBillId = null;    // id of virtual bill being moved
+let movingBillDay = null;   // original day of the virtual bill
+let moveStatus = 'expected'; // default status when moving
 
 // Ensure we don't go before April 2026
 if (currentYear < 2026 || (currentYear === 2026 && currentMonth < 3)) {
@@ -1157,8 +1184,8 @@ function getBillsForDate(year, month, day) {
 }
 
 // ── BALANCE CALCULATION ───────────────────────────────────────────────────────
-function calcRunningBalance(upToYear, upToMonth, upToDay) {
-  // Opening balance as of April 10, 2026 — only count completed transactions on/after that date
+function calcRunningBalance(upToYear, upToMonth, upToDay, includeNonCompleted = false) {
+  // Opening balance as of START_DATE — count completed transactions (and optionally pending/expected) up to this date
   let bal = openingBalance;
 
   const startInt = START_DATE.getFullYear() * 10000 + START_DATE.getMonth() * 100 + START_DATE.getDate();
@@ -1166,10 +1193,29 @@ function calcRunningBalance(upToYear, upToMonth, upToDay) {
 
   for (const t of allTransactions) {
     const tInt = t.year * 10000 + t.month * 100 + t.day;
-    if (t.status !== 'completed') continue;
     if (tInt < startInt) continue;
     if (tInt > toInt) continue;
+    if (!includeNonCompleted && t.status !== 'completed') continue;
     bal += t.amount;
+  }
+
+  return bal;
+}
+
+// Projected balance also folds in virtual recurring bills up to a date
+function calcProjectedBalance(upToYear, upToMonth, upToDay) {
+  let bal = calcRunningBalance(upToYear, upToMonth, upToDay, true);
+
+  // Also include virtual bills (auto-generated recurring) up to this date
+  const startInt = START_DATE.getFullYear() * 10000 + START_DATE.getMonth() * 100 + START_DATE.getDate();
+  const toInt = upToYear * 10000 + upToMonth * 100 + upToDay;
+
+  // Scan every day from start up to target to catch virtual bills
+  const startDate = new Date(START_DATE);
+  const toDate = new Date(upToYear, upToMonth, upToDay);
+  for (let dt = new Date(startDate); dt <= toDate; dt.setDate(dt.getDate() + 1)) {
+    const vBills = getBillsForDate(dt.getFullYear(), dt.getMonth(), dt.getDate());
+    for (const vb of vBills) bal += vb.amount;
   }
 
   return bal;
@@ -1205,14 +1251,18 @@ function renderCalendar() {
     const virtualBills = getBillsForDate(currentYear, currentMonth, d);
     const allDay = [...txns, ...virtualBills];
     
-    // Running balance: end of day (only completed txns)
-    const balance = calcRunningBalance(currentYear, currentMonth, d);
+    // Cleared balance (completed only) — used for top bar
+    const clearedBal = calcRunningBalance(currentYear, currentMonth, d);
+    // Projected balance (all statuses + virtual bills) — shown on calendar
+    const projectedBal = calcProjectedBalance(currentYear, currentMonth, d);
     const dayOut = allDay.filter(t => t.amount < 0 && t.status === 'completed').reduce((s,t) => s+t.amount, 0);
     const dayIn = allDay.filter(t => t.amount > 0 && t.status === 'completed').reduce((s,t) => s+t.amount, 0);
-    
-    const hasActivity = allDay.length > 0;
-    const balClass = balance < 0 ? 'negative' : '';
-    const fmtBal = `$${balance.toFixed(0)}`;
+
+    const hasPending = allDay.some(t => t.status !== 'completed');
+    const balClass = projectedBal < 0 ? 'negative' : '';
+    // Show projected if it differs from cleared (i.e. there are pending/expected items), else show cleared
+    const displayBal = projectedBal;
+    const isProjected = Math.abs(projectedBal - clearedBal) > 0.001;
     
     let cls = 'day-cell';
     if (isPastStart) cls += ' past-start';
@@ -1237,7 +1287,7 @@ function renderCalendar() {
     html += `
       <div class="${cls}" onclick="openDay(${d})">
         <div class="day-number">${isToday ? `<span style="background:var(--accent);color:white;width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;">${d}</span>` : d}</div>
-        ${fmtBal ? `<div class="day-balance ${balClass}">${fmtBal}</div>` : ''}
+        <div class="day-balance ${balClass}" style="${isProjected ? 'opacity:0.7;font-style:italic;' : ''}">$${displayBal.toFixed(0)}</div>
         <div class="day-transactions">${txnHtml}</div>
         ${totalsHtml ? `<div class="day-totals">${totalsHtml}</div>` : ''}
       </div>`;
@@ -1365,8 +1415,12 @@ function renderDayDetail(day) {
         </div>
         <span class="txn-amount ${amtCls}">${sign}$${Math.abs(t.amount).toFixed(2)}</span>
         <div class="txn-actions">
-          ${isVirtual ? `<button class="txn-btn confirm" onclick="confirmBill('${t.billRef.id}', ${day})">✓ Mark Paid</button>` : `
+          ${isVirtual ? `
+            <button class="txn-btn confirm" onclick="confirmBill('${t.billRef.id}', ${day})">✓ Paid</button>
+            <button class="txn-btn edit" onclick="moveBill('${t.billRef.id}', ${day})">Move</button>
+          ` : `
             <button class="txn-btn edit" onclick="editTxn('${t.id}')">Edit</button>
+            <button class="txn-btn edit" onclick="moveTxn('${t.id}')">Move</button>
             <button class="txn-btn delete" onclick="confirmDeleteTxn('${t.id}')">✕</button>
           `}
         </div>
@@ -1392,6 +1446,80 @@ async function confirmBill(billId, day) {
   });
   await loadTransactions();
   renderDayDetail(day);
+  renderCalendar();
+}
+
+// ── MOVE TRANSACTION ─────────────────────────────────────────────────────────
+function setMoveStatus(status) {
+  moveStatus = status;
+  ['pending','expected','completed'].forEach(s => {
+    document.getElementById('move-status-' + s).classList.toggle('selected', s === status);
+  });
+}
+
+function moveTxn(id) {
+  const t = allTransactions.find(t => t.id === id);
+  if (!t) return;
+  movingTxnId = id;
+  movingBillId = null;
+  const currentDateStr = `${t.year}-${String(t.month + 1).padStart(2,'0')}-${String(t.day).padStart(2,'0')}`;
+  document.getElementById('move-modal-title').textContent = 'Move Transaction';
+  document.getElementById('move-modal-desc').textContent = `${t.description} · $${Math.abs(t.amount).toFixed(2)}`;
+  document.getElementById('move-date').value = currentDateStr;
+  document.getElementById('move-status-group').style.display = '';
+  setMoveStatus(t.status);
+  closeModal('day-modal');
+  openModal('move-modal');
+}
+
+function moveBill(billId, day) {
+  const bill = recurringBills.find(b => b.id === billId);
+  if (!bill) return;
+  movingBillId = billId;
+  movingBillDay = day;
+  movingTxnId = null;
+  const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+  document.getElementById('move-modal-title').textContent = 'Move Bill to Different Date';
+  document.getElementById('move-modal-desc').textContent = `${bill.name} · $${bill.amount.toFixed(2)} — choose the date you'll pay it`;
+  document.getElementById('move-date').value = dateStr;
+  document.getElementById('move-status-group').style.display = '';
+  setMoveStatus('expected');
+  closeModal('day-modal');
+  openModal('move-modal');
+}
+
+async function confirmMove() {
+  const dateVal = document.getElementById('move-date').value;
+  if (!dateVal) return alert('Please select a date');
+  const [y, m, d] = dateVal.split('-').map(Number);
+
+  if (movingTxnId) {
+    // Update existing transaction's date
+    await updateDoc(doc(db, 'transactions', movingTxnId), {
+      year: y, month: m - 1, day: d, status: moveStatus
+    });
+  } else if (movingBillId) {
+    // Convert virtual bill to real transaction on new date
+    const bill = recurringBills.find(b => b.id === movingBillId);
+    if (!bill) return;
+    await addDoc(collection(db, 'transactions'), {
+      description: bill.name,
+      amount: -Math.abs(bill.amount),
+      category: bill.category,
+      status: moveStatus,
+      year: y,
+      month: m - 1,
+      day: d,
+      recurringBillId: movingBillId,
+      createdAt: new Date().toISOString()
+    });
+  }
+
+  movingTxnId = null;
+  movingBillId = null;
+  movingBillDay = null;
+  closeModal('move-modal');
+  await loadTransactions();
   renderCalendar();
 }
 
@@ -1807,6 +1935,8 @@ document.addEventListener('DOMContentLoaded', () => {
   window.editTxn = editTxn;
   window.confirmDeleteTxn = confirmDeleteTxn;
   window.confirmBill = confirmBill;
+  window.moveTxn = moveTxn;
+  window.moveBill = moveBill;
   window.editBill = editBill;
   window.quickDeleteBill = quickDeleteBill;
   window.editCard = editCard;
@@ -1841,6 +1971,13 @@ document.addEventListener('DOMContentLoaded', () => {
   // Day modal
   document.getElementById('btn-add-txn-for-day').addEventListener('click', () => openAddTransactionForDay());
   document.getElementById('btn-close-day-modal').addEventListener('click', () => closeModal('day-modal'));
+
+  // Move modal
+  document.getElementById('btn-confirm-move').addEventListener('click', () => confirmMove());
+  document.getElementById('btn-cancel-move').addEventListener('click', () => closeModal('move-modal'));
+  document.getElementById('move-status-pending').addEventListener('click', () => setMoveStatus('pending'));
+  document.getElementById('move-status-expected').addEventListener('click', () => setMoveStatus('expected'));
+  document.getElementById('move-status-completed').addEventListener('click', () => setMoveStatus('completed'));
 
   // Bill modal
   document.getElementById('btn-add-bill').addEventListener('click', () => openAddBill());
