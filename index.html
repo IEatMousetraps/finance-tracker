@@ -815,6 +815,7 @@
   <h1>finance <em>calendar</em></h1>
   <div class="nav-right">
     <button class="nav-btn active" id="nav-calendar">Calendar</button>
+    <button class="nav-btn" id="nav-cc-calendar">CC Calendar</button>
     <button class="nav-btn" id="nav-reports">Reports</button>
     <button class="nav-btn" id="nav-cards">Cards</button>
     <button class="nav-btn" id="nav-loans">Loans</button>
@@ -876,6 +877,46 @@
   </main>
 </div>
 
+<!-- CC BALANCE BAR -->
+<div class="balance-bar" id="cc-balance-bar" style="display:none;background:#4a2060;">
+  <div class="balance-item">
+    <span class="label">CC Balance</span>
+    <span class="amount" id="cc-bal-total">—</span>
+  </div>
+  <span class="divider">|</span>
+  <div class="balance-item">
+    <span class="label">Month Charged</span>
+    <span class="amount" id="cc-bal-out" style="color:#f0907e;">—</span>
+  </div>
+  <span class="divider">|</span>
+  <div class="balance-item">
+    <span class="label">Month Payments</span>
+    <span class="amount" id="cc-bal-in" style="color:#8cc9a0;">—</span>
+  </div>
+  <span class="divider">|</span>
+  <div class="balance-item">
+    <span class="label">Pending</span>
+    <span class="amount" id="cc-bal-pending" style="color:#c4b0e0;">—</span>
+  </div>
+</div>
+
+<!-- CC CALENDAR VIEW -->
+<div id="view-cc-calendar" style="display:none;">
+  <main>
+    <div class="month-nav">
+      <button class="month-nav-btn" id="btn-cc-prev-month">←</button>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:6px;">
+        <h2 id="cc-month-title">Loading...</h2>
+        <button class="today-btn" id="btn-cc-today">Today</button>
+      </div>
+      <button class="month-nav-btn" id="btn-cc-next-month">→</button>
+    </div>
+    <div class="calendar-grid" id="cc-calendar-grid">
+      <div class="loading">Loading...</div>
+    </div>
+  </main>
+</div>
+
 <!-- CARDS VIEW -->
 <div id="view-cards" style="display:none;">
   <main>
@@ -912,6 +953,13 @@
         <button class="month-nav-btn" id="report-next-month">→</button>
       </div>
       <button class="today-btn" id="report-today">This Month</button>
+    </div>
+
+    <!-- Source Toggle -->
+    <div style="display:flex;gap:6px;margin-bottom:20px;">
+      <button class="today-btn" id="report-src-checking" onclick="setReportSource('checking')" style="border-radius:20px;">Checking</button>
+      <button class="today-btn" id="report-src-cc" onclick="setReportSource('cc')" style="border-radius:20px;">Credit Cards</button>
+      <button class="today-btn" id="report-src-combined" onclick="setReportSource('combined')" style="border-radius:20px;">Combined</button>
     </div>
 
     <!-- Summary Cards -->
@@ -990,6 +1038,79 @@
 
 <!-- FAB -->
 <button class="fab" id="fab" title="Add transaction">+</button>
+<button class="fab" id="cc-fab" title="Add CC transaction" style="display:none;background:#6b3fa0;bottom:24px;">+</button>
+
+<!-- CC TRANSACTION MODAL -->
+<div class="modal-overlay" id="cc-txn-modal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <h3 id="cc-txn-modal-title">Add CC Transaction</h3>
+    <div class="type-toggle">
+      <div class="type-opt expense selected" id="cc-type-expense">− Charge</div>
+      <div class="type-opt income" id="cc-type-income">+ Payment</div>
+    </div>
+    <div class="form-group">
+      <label>Credit Card</label>
+      <select id="cc-txn-card"></select>
+    </div>
+    <div class="form-group">
+      <label>Description / Merchant</label>
+      <input type="text" id="cc-txn-desc" placeholder="e.g. Kroger, Amazon, Target" autocomplete="off">
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Amount ($)</label>
+        <input type="number" step="0.01" id="cc-txn-amount" placeholder="0.00" inputmode="decimal">
+      </div>
+      <div class="form-group">
+        <label>Date</label>
+        <input type="date" id="cc-txn-date">
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Category</label>
+      <select id="cc-txn-category">
+        <option value="housing">🏠 Housing / Mortgage / Rent</option>
+        <option value="car">🚗 Car Payment</option>
+        <option value="insurance">🛡️ Insurance</option>
+        <option value="utilities">💡 Utilities (Electric, Gas, Water)</option>
+        <option value="internet">📡 Internet / Phone / Cable</option>
+        <option value="subscriptions">📱 Subscriptions & Memberships</option>
+        <option value="groceries">🛒 Groceries</option>
+        <option value="food">🍔 Food & Dining Out</option>
+        <option value="coffee">☕ Coffee & Drinks</option>
+        <option value="gas">⛽ Gas & Fuel</option>
+        <option value="transport">🚌 Transportation & Parking</option>
+        <option value="health">🏥 Medical & Health</option>
+        <option value="pharmacy">💊 Pharmacy</option>
+        <option value="pets">🐾 Pets</option>
+        <option value="kids">👶 Kids & Childcare</option>
+        <option value="shopping">🛍️ Shopping & Clothing</option>
+        <option value="household">🧹 Household & Home Improvement</option>
+        <option value="entertainment">🎬 Entertainment & Fun</option>
+        <option value="sports">⚽ Sports & Recreation</option>
+        <option value="travel">✈️ Travel & Vacation</option>
+        <option value="personal">💇 Personal Care & Beauty</option>
+        <option value="education">📚 Education</option>
+        <option value="charity">❤️ Charity & Gifts</option>
+        <option value="savings">💰 Savings & Investments</option>
+        <option value="transfer">🔄 CC Payment / Transfer</option>
+        <option value="other">📌 Other</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Status</label>
+      <div class="status-toggle">
+        <div class="status-opt pending" id="cc-status-pending">Pending</div>
+        <div class="status-opt expected" id="cc-status-expected">Expected</div>
+        <div class="status-opt completed selected" id="cc-status-completed">Completed</div>
+      </div>
+    </div>
+    <button class="btn btn-primary" id="btn-save-cc-txn">Save</button>
+    <button class="btn btn-secondary" id="btn-cancel-cc-txn" style="margin-top:8px;">Cancel</button>
+    <button class="btn btn-danger" id="delete-cc-txn-btn" style="display:none;">Delete</button>
+  </div>
+</div>
 
 <!-- ADD/EDIT TRANSACTION MODAL -->
 <div class="modal-overlay" id="txn-modal">
@@ -1071,6 +1192,18 @@
     <div class="txn-list" id="day-txn-list"></div>
     <button class="btn btn-primary" id="btn-add-txn-for-day">+ Add Transaction</button>
     <button class="btn btn-secondary" id="btn-close-day-modal" style="margin-top:8px;">Close</button>
+  </div>
+</div>
+
+<!-- CC DAY DETAIL MODAL -->
+<div class="modal-overlay" id="cc-day-modal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="day-detail-title" id="cc-day-modal-title"></div>
+    <div class="day-detail-stats" id="cc-day-modal-stats"></div>
+    <div class="txn-list" id="cc-day-txn-list"></div>
+    <button class="btn btn-primary" id="btn-add-cc-txn-for-day">+ Add CC Transaction</button>
+    <button class="btn btn-secondary" id="btn-close-cc-day-modal" style="margin-top:8px;">Close</button>
   </div>
 </div>
 
@@ -1388,6 +1521,7 @@ async function init() {
   await loadCards();
   await loadLoans();
   await loadBudgets();
+  await loadCCTransactions();
   await loadTransactions();
   renderCalendar();
   renderBills();
@@ -1723,18 +1857,301 @@ function goToToday() {
 }
 
 function switchView(view) {
-  ['calendar','reports','cards','loans','settings'].forEach(v => {
+  ['calendar','cc-calendar','reports','cards','loans','settings'].forEach(v => {
     document.getElementById('view-' + v).style.display = v === view ? '' : 'none';
     document.getElementById('nav-' + v)?.classList.toggle('active', v === view);
   });
   document.getElementById('fab').style.display = view === 'calendar' ? '' : 'none';
-  document.getElementById('balance-bar').style.display = view === 'settings' ? 'none' : '';
+  document.getElementById('cc-fab').style.display = view === 'cc-calendar' ? '' : 'none';
+  document.getElementById('balance-bar').style.display = (view === 'settings' || view === 'cc-calendar') ? 'none' : '';
+  document.getElementById('cc-balance-bar').style.display = view === 'cc-calendar' ? '' : 'none';
   if (view === 'reports') renderReports();
+  if (view === 'cc-calendar') { renderCCCalendar(); updateCCBalanceBar(); }
+}
+
+// ── CC CALENDAR ───────────────────────────────────────────────────────────────
+let ccTransactions = [];
+let ccCurrentMonth = new Date().getMonth();
+let ccCurrentYear = new Date().getFullYear();
+let ccActiveDay = null;
+let ccEditingTxnId = null;
+let ccTxnType = 'expense';
+let ccTxnStatus = 'completed';
+
+async function loadCCTransactions() {
+  ccTransactions = [];
+  const snap = await getDocs(collection(db, 'ccTransactions'));
+  snap.forEach(d => ccTransactions.push({ id: d.id, ...d.data() }));
+}
+
+function getCCTxnsForDate(year, month, day) {
+  return ccTransactions.filter(t => t.year === year && t.month === month && t.day === day);
+}
+
+function getCCTxnsForMonth(year, month) {
+  return ccTransactions.filter(t => t.year === year && t.month === month);
+}
+
+function populateCCCardSelect(selectId, selectedCardId = null) {
+  const sel = document.getElementById(selectId);
+  if (!sel) return;
+  if (creditCards.length === 0) {
+    sel.innerHTML = '<option value="">— No cards added yet —</option>';
+    return;
+  }
+  sel.innerHTML = creditCards.map(c =>
+    `<option value="${c.id}" ${c.id === selectedCardId ? 'selected' : ''}>${c.name}</option>`
+  ).join('');
+}
+
+function setCCType(type) {
+  ccTxnType = type;
+  document.getElementById('cc-type-expense').classList.toggle('selected', type === 'expense');
+  document.getElementById('cc-type-income').classList.toggle('selected', type === 'income');
+  if (type === 'income') {
+    document.getElementById('cc-txn-category').value = 'transfer';
+    setCCStatus('completed');
+  }
+}
+
+function setCCStatus(status) {
+  ccTxnStatus = status;
+  ['pending','expected','completed'].forEach(s =>
+    document.getElementById('cc-status-' + s).classList.toggle('selected', s === status)
+  );
+}
+
+function openAddCCTransaction(day = null) {
+  ccEditingTxnId = null;
+  document.getElementById('cc-txn-modal-title').textContent = 'Add CC Transaction';
+  document.getElementById('delete-cc-txn-btn').style.display = 'none';
+  document.getElementById('cc-txn-desc').value = '';
+  document.getElementById('cc-txn-amount').value = '';
+  document.getElementById('cc-txn-category').value = 'groceries';
+  populateCCCardSelect('cc-txn-card');
+  const d = day || ccActiveDay;
+  const now = new Date();
+  const yr = d ? ccCurrentYear : now.getFullYear();
+  const mo = d ? ccCurrentMonth + 1 : now.getMonth() + 1;
+  const dy = d || now.getDate();
+  document.getElementById('cc-txn-date').value = `${yr}-${String(mo).padStart(2,'0')}-${String(dy).padStart(2,'0')}`;
+  setCCType('expense');
+  setCCStatus('completed');
+  openModal('cc-txn-modal');
+}
+
+function editCCTxn(id) {
+  const t = ccTransactions.find(t => t.id === id);
+  if (!t) return;
+  ccEditingTxnId = id;
+  document.getElementById('cc-txn-modal-title').textContent = 'Edit CC Transaction';
+  document.getElementById('delete-cc-txn-btn').style.display = '';
+  document.getElementById('cc-txn-desc').value = t.description;
+  document.getElementById('cc-txn-amount').value = Math.abs(t.amount);
+  document.getElementById('cc-txn-date').value = `${t.year}-${String(t.month+1).padStart(2,'0')}-${String(t.day).padStart(2,'0')}`;
+  document.getElementById('cc-txn-category').value = t.category || 'other';
+  populateCCCardSelect('cc-txn-card', t.cardId);
+  setCCType(t.amount >= 0 ? 'income' : 'expense');
+  setCCStatus(t.status || 'completed');
+  closeModal('cc-day-modal');
+  openModal('cc-txn-modal');
+}
+
+async function saveCCTxn() {
+  const desc = document.getElementById('cc-txn-desc').value.trim();
+  const amt = parseFloat(document.getElementById('cc-txn-amount').value);
+  const dateVal = document.getElementById('cc-txn-date').value;
+  const cat = document.getElementById('cc-txn-category').value;
+  const cardId = document.getElementById('cc-txn-card').value;
+  const cardName = creditCards.find(c => c.id === cardId)?.name || '';
+
+  if (!desc) return alert('Please enter a description');
+  if (isNaN(amt) || amt <= 0) return alert('Please enter a valid amount');
+  if (!dateVal) return alert('Please select a date');
+  if (!cardId) return alert('Please select a credit card');
+
+  const [y, m, d] = dateVal.split('-').map(Number);
+  const finalAmt = ccTxnType === 'expense' ? -Math.abs(amt) : Math.abs(amt);
+
+  const data = {
+    description: desc, amount: finalAmt, category: cat,
+    status: ccTxnStatus, year: y, month: m - 1, day: d,
+    cardId, cardName, createdAt: new Date().toISOString()
+  };
+
+  if (ccEditingTxnId) {
+    await updateDoc(doc(db, 'ccTransactions', ccEditingTxnId), data);
+  } else {
+    await addDoc(collection(db, 'ccTransactions'), data);
+  }
+
+  closeModal('cc-txn-modal');
+  await loadCCTransactions();
+  renderCCCalendar();
+  updateCCBalanceBar();
+  if (ccActiveDay) renderCCDayDetail(ccActiveDay);
+}
+
+async function deleteCCTxn() {
+  if (!ccEditingTxnId) return;
+  await deleteDoc(doc(db, 'ccTransactions', ccEditingTxnId));
+  ccEditingTxnId = null;
+  closeModal('cc-txn-modal');
+  await loadCCTransactions();
+  renderCCCalendar();
+  updateCCBalanceBar();
+}
+
+function openCCDay(day) {
+  ccActiveDay = day;
+  const months = ['January','February','March','April','May','June',
+                  'July','August','September','October','November','December'];
+  const date = new Date(ccCurrentYear, ccCurrentMonth, day);
+  const dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  document.getElementById('cc-day-modal-title').textContent =
+    `${dayNames[date.getDay()]}, ${months[ccCurrentMonth]} ${day}`;
+  renderCCDayDetail(day);
+  openModal('cc-day-modal');
+}
+
+function renderCCDayDetail(day) {
+  const txns = getCCTxnsForDate(ccCurrentYear, ccCurrentMonth, day);
+  const out = txns.filter(t=>t.amount<0&&t.status==='completed').reduce((s,t)=>s+t.amount,0);
+  const inc = txns.filter(t=>t.amount>0&&t.status==='completed').reduce((s,t)=>s+t.amount,0);
+  const pend = txns.filter(t=>t.status==='pending').reduce((s,t)=>s+t.amount,0);
+
+  document.getElementById('cc-day-modal-stats').innerHTML = `
+    <div class="stat-item"><span class="stat-val" style="color:var(--red)">-$${Math.abs(out).toFixed(2)}</span><span class="stat-label">Charged</span></div>
+    <div class="stat-item"><span class="stat-val" style="color:var(--green)">+$${inc.toFixed(2)}</span><span class="stat-label">Payments</span></div>
+    <div class="stat-item"><span class="stat-val" style="color:var(--pending-text)">$${pend.toFixed(2)}</span><span class="stat-label">Pending</span></div>
+  `;
+
+  const catLabels = {
+    housing:'Housing',car:'Car',insurance:'Insurance',utilities:'Utilities',
+    internet:'Internet/Phone',subscriptions:'Subscriptions',groceries:'Groceries',
+    food:'Food & Dining',coffee:'Coffee',gas:'Gas',transport:'Transport',
+    health:'Medical',pharmacy:'Pharmacy',pets:'Pets',kids:'Kids',
+    shopping:'Shopping',household:'Household',entertainment:'Entertainment',
+    sports:'Sports',travel:'Travel',personal:'Personal Care',
+    education:'Education',charity:'Charity/Gifts',savings:'Savings',
+    transfer:'CC Payment',other:'Other'
+  };
+
+  let html = txns.length === 0
+    ? `<div class="empty-state"><div class="icon">💳</div>No CC transactions</div>`
+    : txns.map(t => {
+      const amtCls = t.amount > 0 ? 'income' : 'expense';
+      const sign = t.amount > 0 ? '+' : '';
+      const statusCls = t.status === 'expected' ? 'expected' : t.status;
+      return `
+        <div class="txn-card ${statusCls}">
+          <div class="txn-info">
+            <div class="txn-desc">${t.description}</div>
+            <div class="txn-meta">
+              <span class="cat-badge">${catLabels[t.category] || t.category}</span>
+              <span class="recurring-badge" style="background:#e8d5f5;color:#6b3fa0;">${t.cardName || 'CC'}</span>
+            </div>
+          </div>
+          <span class="txn-amount ${amtCls}">${sign}$${Math.abs(t.amount).toFixed(2)}</span>
+          <div class="txn-actions">
+            <button class="txn-btn edit" onclick="editCCTxn('${t.id}')">Edit</button>
+            <button class="txn-btn delete" onclick="deleteCCTxnFromDay('${t.id}')">✕</button>
+          </div>
+        </div>`;
+    }).join('');
+
+  document.getElementById('cc-day-txn-list').innerHTML = html;
+}
+
+async function deleteCCTxnFromDay(id) {
+  await deleteDoc(doc(db, 'ccTransactions', id));
+  await loadCCTransactions();
+  renderCCDayDetail(ccActiveDay);
+  renderCCCalendar();
+  updateCCBalanceBar();
+}
+
+function renderCCCalendar() {
+  const months = ['January','February','March','April','May','June',
+                  'July','August','September','October','November','December'];
+  document.getElementById('cc-month-title').textContent = `${months[ccCurrentMonth]} ${ccCurrentYear}`;
+
+  const grid = document.getElementById('cc-calendar-grid');
+  const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  let html = days.map(d => `<div class="day-header">${d}</div>`).join('');
+
+  const firstDay = new Date(ccCurrentYear, ccCurrentMonth, 1).getDay();
+  const daysInMonth = new Date(ccCurrentYear, ccCurrentMonth + 1, 0).getDate();
+  const today = new Date();
+  const prevDays = new Date(ccCurrentYear, ccCurrentMonth, 0).getDate();
+
+  for (let i = firstDay - 1; i >= 0; i--) {
+    html += `<div class="day-cell other-month"><div class="day-number">${prevDays - i}</div></div>`;
+  }
+
+  for (let d = 1; d <= daysInMonth; d++) {
+    const isToday = d === today.getDate() && ccCurrentMonth === today.getMonth() && ccCurrentYear === today.getFullYear();
+    const txns = getCCTxnsForDate(ccCurrentYear, ccCurrentMonth, d);
+    const dayOut = txns.filter(t=>t.amount<0&&t.status==='completed').reduce((s,t)=>s+t.amount,0);
+    const dayIn = txns.filter(t=>t.amount>0&&t.status==='completed').reduce((s,t)=>s+t.amount,0);
+
+    let cls = 'day-cell';
+    if (isToday) cls += ' today';
+
+    const visible = txns.slice(0, 4);
+    const more = txns.length - 4;
+    let txnHtml = visible.map(t => {
+      const pillCls = t.amount > 0 ? 'income' : (t.status === 'completed' ? 'completed' : t.status === 'expected' ? 'expected' : 'pending');
+      const sign = t.amount > 0 ? '+' : '';
+      return `<div class="txn-pill ${pillCls}"><span>${t.description}</span><span>${sign}$${Math.abs(t.amount).toFixed(2)}</span></div>`;
+    }).join('');
+    if (more > 0) txnHtml += `<div class="day-more">+${more} more</div>`;
+
+    let totalsHtml = '';
+    if (dayOut < 0) totalsHtml += `<span class="day-total-chip out">-$${Math.abs(dayOut).toFixed(2)}</span>`;
+    if (dayIn > 0) totalsHtml += `<span class="day-total-chip in">+$${dayIn.toFixed(2)}</span>`;
+
+    html += `
+      <div class="${cls}" onclick="openCCDay(${d})">
+        <div class="day-number">${isToday ? `<span style="background:#6b3fa0;color:white;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;">${d}</span>` : d}</div>
+        <div class="day-transactions">${txnHtml}</div>
+        ${totalsHtml ? `<div class="day-totals">${totalsHtml}</div>` : ''}
+      </div>`;
+  }
+
+  const totalCells = firstDay + daysInMonth;
+  const remaining = totalCells % 7 === 0 ? 0 : 7 - (totalCells % 7);
+  for (let i = 1; i <= remaining; i++) {
+    html += `<div class="day-cell other-month"><div class="day-number">${i}</div></div>`;
+  }
+
+  grid.innerHTML = html;
+}
+
+function updateCCBalanceBar() {
+  const monthTxns = getCCTxnsForMonth(ccCurrentYear, ccCurrentMonth);
+  const out = monthTxns.filter(t=>t.amount<0&&t.status==='completed').reduce((s,t)=>s+t.amount,0);
+  const inc = monthTxns.filter(t=>t.amount>0&&t.status==='completed').reduce((s,t)=>s+t.amount,0);
+  const pend = monthTxns.filter(t=>t.status==='pending').reduce((s,t)=>s+t.amount,0);
+  const totalCC = creditCards.reduce((s,c)=>s+(c.balance||0),0);
+  document.getElementById('cc-bal-total').textContent = `$${totalCC.toFixed(2)}`;
+  document.getElementById('cc-bal-out').textContent = `-$${Math.abs(out).toFixed(2)}`;
+  document.getElementById('cc-bal-in').textContent = `+$${inc.toFixed(2)}`;
+  document.getElementById('cc-bal-pending').textContent = `$${Math.abs(pend).toFixed(2)}`;
+}
+
+async function changeCCMonth(dir) {
+  ccCurrentMonth += dir;
+  if (ccCurrentMonth < 0) { ccCurrentMonth = 11; ccCurrentYear--; }
+  if (ccCurrentMonth > 11) { ccCurrentMonth = 0; ccCurrentYear++; }
+  renderCCCalendar();
+  updateCCBalanceBar();
 }
 
 // ── REPORTS ───────────────────────────────────────────────────────────────────
 let reportMonth = new Date().getMonth();
 let reportYear = new Date().getFullYear();
+let reportSource = 'checking'; // 'checking' | 'cc' | 'combined'
 let budgets = {}; // { category: amount }
 let editingBudgetCat = null;
 
@@ -1798,20 +2215,42 @@ function changeReportMonth(dir) {
   renderReports();
 }
 
+function setReportSource(source) {
+  reportSource = source;
+  renderReports();
+}
+
 function renderReports() {
   const months = ['January','February','March','April','May','June',
                   'July','August','September','October','November','December'];
   document.getElementById('report-month-title').textContent = `${months[reportMonth]} ${reportYear}`;
 
-  const txns = allTransactions.filter(t =>
+  // Update toggle button styles
+  ['checking','cc','combined'].forEach(s => {
+    const btn = document.getElementById('report-src-' + s);
+    if (btn) {
+      btn.style.background = s === reportSource ? 'var(--accent)' : 'var(--accent-light)';
+      btn.style.color = s === reportSource ? 'white' : 'var(--accent)';
+    }
+  });
+
+  // Get transactions based on source, excluding transfers from spending
+  const checkingTxns = allTransactions.filter(t =>
+    t.year === reportYear && t.month === reportMonth && t.status === 'completed' && t.category !== 'transfer'
+  );
+  const ccTxns = ccTransactions.filter(t =>
     t.year === reportYear && t.month === reportMonth && t.status === 'completed'
   );
+
+  let txns = [];
+  if (reportSource === 'checking') txns = checkingTxns;
+  else if (reportSource === 'cc') txns = ccTxns;
+  else txns = [...checkingTxns, ...ccTxns];
 
   const totalIn = txns.filter(t => t.amount > 0).reduce((s,t) => s + t.amount, 0);
   const totalOut = txns.filter(t => t.amount < 0).reduce((s,t) => s + t.amount, 0);
   const net = totalIn + totalOut;
 
-  // Summary cards
   document.getElementById('report-summary').innerHTML = `
     <div class="report-summary-card">
       <div class="rsc-label">Income</div>
@@ -1831,7 +2270,6 @@ function renderReports() {
     </div>
   `;
 
-  // Spending by category
   const byCategory = {};
   txns.filter(t => t.amount < 0).forEach(t => {
     const cat = t.category || 'other';
@@ -1918,19 +2356,26 @@ function renderReportTxnList(txns, filterCat = null) {
 }
 
 let reportCatFilter = null;
-function filterReportByCat(cat) {
-  reportCatFilter = cat;
-  const txns = allTransactions.filter(t =>
+
+function getReportTxns() {
+  const checkingTxns = allTransactions.filter(t =>
+    t.year === reportYear && t.month === reportMonth && t.status === 'completed' && t.category !== 'transfer'
+  );
+  const ccTxns = ccTransactions.filter(t =>
     t.year === reportYear && t.month === reportMonth && t.status === 'completed'
   );
-  renderReportTxnList(txns, cat);
+  if (reportSource === 'checking') return checkingTxns;
+  if (reportSource === 'cc') return ccTxns;
+  return [...checkingTxns, ...ccTxns];
+}
+
+function filterReportByCat(cat) {
+  reportCatFilter = cat;
+  renderReportTxnList(getReportTxns(), cat);
 }
 function clearReportFilter() {
   reportCatFilter = null;
-  const txns = allTransactions.filter(t =>
-    t.year === reportYear && t.month === reportMonth && t.status === 'completed'
-  );
-  renderReportTxnList(txns);
+  renderReportTxnList(getReportTxns());
 }
 
 // ── DAY DETAIL ────────────────────────────────────────────────────────────────
@@ -2800,6 +3245,10 @@ document.addEventListener('DOMContentLoaded', () => {
   window.openAddBudget = openAddBudget;
   window.filterReportByCat = filterReportByCat;
   window.clearReportFilter = clearReportFilter;
+  window.openCCDay = openCCDay;
+  window.editCCTxn = editCCTxn;
+  window.deleteCCTxnFromDay = deleteCCTxnFromDay;
+  window.setReportSource = setReportSource;
 
   // Login
   document.getElementById('btn-login').addEventListener('click', doLogin);
@@ -2807,6 +3256,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Nav
   document.getElementById('nav-calendar').addEventListener('click', () => switchView('calendar'));
+  document.getElementById('nav-cc-calendar').addEventListener('click', () => switchView('cc-calendar'));
   document.getElementById('nav-reports').addEventListener('click', () => switchView('reports'));
   document.getElementById('nav-cards').addEventListener('click', () => switchView('cards'));
   document.getElementById('nav-loans').addEventListener('click', () => switchView('loans'));
@@ -2816,6 +3266,26 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-prev-month').addEventListener('click', () => changeMonth(-1));
   document.getElementById('btn-next-month').addEventListener('click', () => changeMonth(1));
   document.getElementById('btn-today').addEventListener('click', () => goToToday());
+
+  // CC Calendar
+  document.getElementById('btn-cc-prev-month').addEventListener('click', () => changeCCMonth(-1));
+  document.getElementById('btn-cc-next-month').addEventListener('click', () => changeCCMonth(1));
+  document.getElementById('btn-cc-today').addEventListener('click', () => { ccCurrentMonth = new Date().getMonth(); ccCurrentYear = new Date().getFullYear(); renderCCCalendar(); updateCCBalanceBar(); });
+  document.getElementById('cc-fab').addEventListener('click', () => openAddCCTransaction());
+
+  // CC transaction modal
+  document.getElementById('cc-type-expense').addEventListener('click', () => setCCType('expense'));
+  document.getElementById('cc-type-income').addEventListener('click', () => setCCType('income'));
+  document.getElementById('cc-status-pending').addEventListener('click', () => setCCStatus('pending'));
+  document.getElementById('cc-status-expected').addEventListener('click', () => setCCStatus('expected'));
+  document.getElementById('cc-status-completed').addEventListener('click', () => setCCStatus('completed'));
+  document.getElementById('btn-save-cc-txn').addEventListener('click', () => saveCCTxn());
+  document.getElementById('btn-cancel-cc-txn').addEventListener('click', () => closeModal('cc-txn-modal'));
+  document.getElementById('delete-cc-txn-btn').addEventListener('click', () => deleteCCTxn());
+
+  // CC day modal
+  document.getElementById('btn-add-cc-txn-for-day').addEventListener('click', () => { closeModal('cc-day-modal'); openAddCCTransaction(ccActiveDay); });
+  document.getElementById('btn-close-cc-day-modal').addEventListener('click', () => closeModal('cc-day-modal'));
 
   // Report month nav
   document.getElementById('report-prev-month').addEventListener('click', () => changeReportMonth(-1));
