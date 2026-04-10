@@ -23,6 +23,9 @@
     --pending-bg: #ede8f5;
     --pending-text: #5c3d8f;
     --pending-border: #c4b0e0;
+    --expected-bg: #fef9e7;
+    --expected-text: #7d6008;
+    --expected-border: #f4d03f;
     --completed-bg: #3d3833;
     --completed-text: #f7f4ef;
     --mono: 'DM Mono', monospace;
@@ -236,6 +239,11 @@
     color: var(--pending-text);
     border-left: 2px solid var(--pending-border);
   }
+  .txn-pill.expected {
+    background: var(--expected-bg);
+    color: var(--expected-text);
+    border-left: 2px solid var(--expected-border);
+  }
   .txn-pill.completed {
     background: var(--completed-bg);
     color: var(--completed-text);
@@ -379,6 +387,11 @@
     background: var(--pending-bg);
     color: var(--pending-text);
   }
+  .status-opt.expected.selected {
+    border-color: var(--expected-border);
+    background: var(--expected-bg);
+    color: var(--expected-text);
+  }
   .status-opt.completed.selected {
     border-color: var(--completed-bg);
     background: var(--completed-bg);
@@ -464,6 +477,11 @@
   .txn-card.pending {
     border-color: var(--pending-border);
     background: var(--pending-bg);
+  }
+  .txn-card.expected {
+    border-color: var(--expected-border);
+    background: var(--expected-bg);
+    color: var(--expected-text);
   }
   .txn-card.completed {
     border-color: #6b6560;
@@ -861,6 +879,7 @@
       <label>Status</label>
       <div class="status-toggle">
         <div class="status-opt pending selected" id="status-pending">Pending</div>
+        <div class="status-opt expected" id="status-expected">Expected</div>
         <div class="status-opt completed" id="status-completed">Completed</div>
       </div>
     </div>
@@ -889,16 +908,35 @@
     <h3 id="bill-modal-title">Add Recurring Bill</h3>
     <div class="form-group">
       <label>Bill Name</label>
-      <input type="text" id="bill-name" placeholder="e.g. Mortgage, Car Payment, AEP">
+      <input type="text" id="bill-name" placeholder="e.g. Mortgage, Groceries, Car Payment">
+    </div>
+    <div class="form-group">
+      <label>Frequency</label>
+      <div class="type-toggle" style="margin-bottom:0;">
+        <div class="type-opt expense selected" id="freq-monthly" style="font-size:12px;">📅 Monthly</div>
+        <div class="type-opt income" id="freq-weekly" style="font-size:12px;">🗓️ Weekly</div>
+      </div>
     </div>
     <div class="form-row">
       <div class="form-group">
         <label>Amount ($)</label>
         <input type="number" step="0.01" id="bill-amount" placeholder="0.00">
       </div>
-      <div class="form-group">
+      <div class="form-group" id="bill-day-group">
         <label>Day of Month Due</label>
         <input type="number" id="bill-day" min="1" max="31" placeholder="1–28">
+      </div>
+      <div class="form-group" id="bill-weekday-group" style="display:none;">
+        <label>Day of Week</label>
+        <select id="bill-weekday">
+          <option value="0">Sunday</option>
+          <option value="1">Monday</option>
+          <option value="2">Tuesday</option>
+          <option value="3">Wednesday</option>
+          <option value="4">Thursday</option>
+          <option value="5">Friday</option>
+          <option value="6">Saturday</option>
+        </select>
       </div>
     </div>
     <div class="form-group">
@@ -908,6 +946,8 @@
         <option value="car">🚗 Car Payment</option>
         <option value="bills">📋 Utilities</option>
         <option value="health">🏥 Insurance / Health</option>
+        <option value="groceries">🛒 Groceries</option>
+        <option value="food">🍔 Food & Dining</option>
         <option value="savings">💰 Savings</option>
         <option value="other">📌 Other</option>
       </select>
@@ -1042,15 +1082,20 @@ async function loadBills() {
 }
 
 function getBillsForDate(year, month, day) {
-  // Return bills due on this day, as virtual pending transactions
-  // (only if not already manually confirmed/added)
-  const bills = recurringBills.filter(b => b.day === day);
+  const dateObj = new Date(year, month, day);
+  const weekday = dateObj.getDay(); // 0=Sun, 6=Sat
+
+  // Match monthly bills (b.day) OR weekly bills (b.weekday matches this day's weekday)
+  const bills = recurringBills.filter(b => {
+    if (b.frequency === 'weekly') return b.weekday === weekday;
+    return b.day === day; // monthly (default)
+  });
+
   const existing = getTxnsForDate(year, month, day);
   return bills.filter(b => {
-    // Don't show if a transaction exists with same name on this day (already confirmed)
     return !existing.some(t => t.description === b.name && t.recurringBillId === b.id);
   }).map(b => ({
-    id: 'bill_' + b.id,
+    id: 'bill_' + b.id + '_' + day,
     description: b.name,
     amount: -Math.abs(b.amount),
     category: b.category,
@@ -1127,7 +1172,7 @@ function renderCalendar() {
     const more = allDay.length - 3;
     
     for (const t of visible) {
-      const pillCls = t.amount > 0 ? 'income' : (t.status === 'completed' ? 'completed' : 'pending');
+      const pillCls = t.amount > 0 ? 'income' : (t.status === 'completed' ? 'completed' : (t.isVirtualBill || t.status === 'expected' ? 'expected' : 'pending'));
       const sign = t.amount > 0 ? '+' : '';
       const amt = `${sign}$${Math.abs(t.amount).toFixed(0)}`;
       txnHtml += `<div class="txn-pill ${pillCls}""><span>${t.description}</span><span>${amt}</span></div>`;
@@ -1249,7 +1294,7 @@ function renderDayDetail(day) {
     const isVirtual = t.isVirtualBill;
     const amtCls = t.amount > 0 ? 'income' : 'expense';
     const sign = t.amount > 0 ? '+' : '';
-    const statusCls = t.status;
+    const statusCls = (isVirtual || t.status === 'expected') ? 'expected' : t.status;
     html += `
       <div class="txn-card ${statusCls}">
         <div class="txn-info">
@@ -1387,6 +1432,14 @@ async function deleteTxn() {
 }
 
 // ── BILLS ─────────────────────────────────────────────────────────────────────
+function setBillFrequency(freq) {
+  const isWeekly = freq === 'weekly';
+  document.getElementById('freq-monthly').classList.toggle('selected', !isWeekly);
+  document.getElementById('freq-weekly').classList.toggle('selected', isWeekly);
+  document.getElementById('bill-day-group').style.display = isWeekly ? 'none' : '';
+  document.getElementById('bill-weekday-group').style.display = isWeekly ? '' : 'none';
+}
+
 function openAddBill() {
   editingBillId = null;
   document.getElementById('bill-modal-title').textContent = 'Add Recurring Bill';
@@ -1394,21 +1447,31 @@ function openAddBill() {
   document.getElementById('bill-name').value = '';
   document.getElementById('bill-amount').value = '';
   document.getElementById('bill-day').value = '';
+  document.getElementById('bill-weekday').value = '6'; // default Saturday
   document.getElementById('bill-category').value = 'housing';
+  setBillFrequency('monthly');
   openModal('bill-modal');
 }
 
 async function saveBill() {
   const name = document.getElementById('bill-name').value.trim();
   const amt = parseFloat(document.getElementById('bill-amount').value);
-  const day = parseInt(document.getElementById('bill-day').value);
   const cat = document.getElementById('bill-category').value;
+  const frequency = document.getElementById('freq-weekly').classList.contains('selected') ? 'weekly' : 'monthly';
 
   if (!name) return alert('Please enter a bill name');
   if (isNaN(amt) || amt <= 0) return alert('Please enter a valid amount');
-  if (isNaN(day) || day < 1 || day > 31) return alert('Please enter a valid day (1-31)');
 
-  const data = { name, amount: amt, day, category: cat };
+  let data;
+  if (frequency === 'weekly') {
+    const weekday = parseInt(document.getElementById('bill-weekday').value);
+    data = { name, amount: amt, category: cat, frequency: 'weekly', weekday };
+  } else {
+    const day = parseInt(document.getElementById('bill-day').value);
+    if (isNaN(day) || day < 1 || day > 31) return alert('Please enter a valid day (1-31)');
+    data = { name, amount: amt, category: cat, frequency: 'monthly', day };
+  }
+
   if (editingBillId) {
     await updateDoc(doc(db, 'recurringBills', editingBillId), data);
   } else {
@@ -1428,8 +1491,14 @@ function editBill(id) {
   document.getElementById('delete-bill-btn').style.display = '';
   document.getElementById('bill-name').value = b.name;
   document.getElementById('bill-amount').value = b.amount;
-  document.getElementById('bill-day').value = b.day;
   document.getElementById('bill-category').value = b.category;
+  if (b.frequency === 'weekly') {
+    setBillFrequency('weekly');
+    document.getElementById('bill-weekday').value = b.weekday;
+  } else {
+    setBillFrequency('monthly');
+    document.getElementById('bill-day').value = b.day;
+  }
   openModal('bill-modal');
 }
 
@@ -1457,21 +1526,33 @@ function renderBills() {
     container.innerHTML = `<div class="empty-state"><div class="icon">📋</div>No recurring bills added</div>`;
     return;
   }
-  const sorted = [...recurringBills].sort((a,b) => a.day - b.day);
-  container.innerHTML = sorted.map(b => `
-    <div class="bill-card">
-      <div class="bill-day">${b.day}</div>
-      <div class="bill-info">
-        <div class="bill-name">${b.name}</div>
-        <div class="bill-meta">Due on the ${b.day}${ordinal(b.day)} each month</div>
+  const dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  const sorted = [...recurringBills].sort((a,b) => {
+    // Sort monthly by day, weekly by weekday, monthly before weekly
+    if (a.frequency === 'weekly' && b.frequency !== 'weekly') return 1;
+    if (a.frequency !== 'weekly' && b.frequency === 'weekly') return -1;
+    if (a.frequency === 'weekly') return a.weekday - b.weekday;
+    return a.day - b.day;
+  });
+  container.innerHTML = sorted.map(b => {
+    const isWeekly = b.frequency === 'weekly';
+    const label = isWeekly ? dayNames[b.weekday] : b.day;
+    const meta = isWeekly ? `Every ${dayNames[b.weekday]}` : `Due on the ${b.day}${ordinal(b.day)} each month`;
+    return `
+      <div class="bill-card">
+        <div class="bill-day" style="${isWeekly ? 'font-size:9px;' : ''}">${isWeekly ? dayNames[b.weekday].slice(0,3).toUpperCase() : b.day}</div>
+        <div class="bill-info">
+          <div class="bill-name">${b.name}</div>
+          <div class="bill-meta">${meta}</div>
+        </div>
+        <span class="bill-amount">-$${b.amount.toFixed(2)}</span>
+        <div class="bill-actions">
+          <button class="icon-btn" onclick="editBill('${b.id}')">✏️</button>
+          <button class="icon-btn danger" onclick="quickDeleteBill('${b.id}')">✕</button>
+        </div>
       </div>
-      <span class="bill-amount">-$${b.amount.toFixed(2)}</span>
-      <div class="bill-actions">
-        <button class="icon-btn" onclick="editBill('${b.id}')">✏️</button>
-        <button class="icon-btn danger" onclick="quickDeleteBill('${b.id}')">✕</button>
-      </div>
-    </div>
-  `).join('');
+    `;
+  }).join('');
 }
 
 // ── CREDIT CARDS ──────────────────────────────────────────────────────────────
@@ -1579,6 +1660,7 @@ function setType(type) {
 function setStatus(status) {
   txnStatus = status;
   document.getElementById('status-pending').classList.toggle('selected', status === 'pending');
+  document.getElementById('status-expected').classList.toggle('selected', status === 'expected');
   document.getElementById('status-completed').classList.toggle('selected', status === 'completed');
 }
 
@@ -1685,6 +1767,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('type-expense').addEventListener('click', () => setType('expense'));
   document.getElementById('type-income').addEventListener('click', () => setType('income'));
   document.getElementById('status-pending').addEventListener('click', () => setStatus('pending'));
+  document.getElementById('status-expected').addEventListener('click', () => setStatus('expected'));
   document.getElementById('status-completed').addEventListener('click', () => setStatus('completed'));
   document.getElementById('btn-save-txn').addEventListener('click', () => saveTxn());
   document.getElementById('btn-cancel-txn').addEventListener('click', () => closeModal('txn-modal'));
@@ -1696,6 +1779,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Bill modal
   document.getElementById('btn-add-bill').addEventListener('click', () => openAddBill());
+  document.getElementById('freq-monthly').addEventListener('click', () => setBillFrequency('monthly'));
+  document.getElementById('freq-weekly').addEventListener('click', () => setBillFrequency('weekly'));
   document.getElementById('btn-save-bill').addEventListener('click', () => saveBill());
   document.getElementById('btn-cancel-bill').addEventListener('click', () => closeModal('bill-modal'));
   document.getElementById('delete-bill-btn').addEventListener('click', () => deleteBill());
