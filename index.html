@@ -939,6 +939,14 @@
         </select>
       </div>
     </div>
+    <div class="form-group" id="bill-interval-group" style="display:none;">
+      <label>Repeat Every</label>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <input type="number" id="bill-interval" min="1" max="52" value="1" style="width:80px;">
+        <span style="font-size:13px;color:var(--text-muted);">week(s)</span>
+      </div>
+      <p style="font-size:10px;color:var(--text-muted);margin-top:6px;">1 = every week &nbsp;·&nbsp; 2 = every other week &nbsp;·&nbsp; 6 = every 6 weeks</p>
+    </div>
     <div class="form-group">
       <label>Category</label>
       <select id="bill-category">
@@ -1085,10 +1093,19 @@ function getBillsForDate(year, month, day) {
   const dateObj = new Date(year, month, day);
   const weekday = dateObj.getDay(); // 0=Sun, 6=Sat
 
-  // Match monthly bills (b.day) OR weekly bills (b.weekday matches this day's weekday)
   const bills = recurringBills.filter(b => {
-    if (b.frequency === 'weekly') return b.weekday === weekday;
-    return b.day === day; // monthly (default)
+    if (b.frequency === 'weekly') {
+      // Must be the right day of week first
+      if (b.weekday !== weekday) return false;
+      // If interval is 1 (every week), always matches
+      const interval = b.interval || 1;
+      if (interval === 1) return true;
+      // For every N weeks: count weeks from START_DATE anchor
+      const msPerWeek = 7 * 24 * 60 * 60 * 1000;
+      const weeksDiff = Math.round((dateObj - START_DATE) / msPerWeek);
+      return weeksDiff >= 0 && weeksDiff % interval === 0;
+    }
+    return b.day === day; // monthly
   });
 
   const existing = getTxnsForDate(year, month, day);
@@ -1438,6 +1455,7 @@ function setBillFrequency(freq) {
   document.getElementById('freq-weekly').classList.toggle('selected', isWeekly);
   document.getElementById('bill-day-group').style.display = isWeekly ? 'none' : '';
   document.getElementById('bill-weekday-group').style.display = isWeekly ? '' : 'none';
+  document.getElementById('bill-interval-group').style.display = isWeekly ? '' : 'none';
 }
 
 function openAddBill() {
@@ -1448,6 +1466,7 @@ function openAddBill() {
   document.getElementById('bill-amount').value = '';
   document.getElementById('bill-day').value = '';
   document.getElementById('bill-weekday').value = '6'; // default Saturday
+  document.getElementById('bill-interval').value = '1';
   document.getElementById('bill-category').value = 'housing';
   setBillFrequency('monthly');
   openModal('bill-modal');
@@ -1465,7 +1484,8 @@ async function saveBill() {
   let data;
   if (frequency === 'weekly') {
     const weekday = parseInt(document.getElementById('bill-weekday').value);
-    data = { name, amount: amt, category: cat, frequency: 'weekly', weekday };
+    const interval = parseInt(document.getElementById('bill-interval').value) || 1;
+    data = { name, amount: amt, category: cat, frequency: 'weekly', weekday, interval };
   } else {
     const day = parseInt(document.getElementById('bill-day').value);
     if (isNaN(day) || day < 1 || day > 31) return alert('Please enter a valid day (1-31)');
@@ -1495,6 +1515,7 @@ function editBill(id) {
   if (b.frequency === 'weekly') {
     setBillFrequency('weekly');
     document.getElementById('bill-weekday').value = b.weekday;
+    document.getElementById('bill-interval').value = b.interval || 1;
   } else {
     setBillFrequency('monthly');
     document.getElementById('bill-day').value = b.day;
@@ -1537,7 +1558,9 @@ function renderBills() {
   container.innerHTML = sorted.map(b => {
     const isWeekly = b.frequency === 'weekly';
     const label = isWeekly ? dayNames[b.weekday] : b.day;
-    const meta = isWeekly ? `Every ${dayNames[b.weekday]}` : `Due on the ${b.day}${ordinal(b.day)} each month`;
+    const meta = isWeekly
+      ? `Every ${(b.interval || 1) > 1 ? `${b.interval} weeks on ` : ''}${dayNames[b.weekday]}`
+      : `Due on the ${b.day}${ordinal(b.day)} each month`;
     return `
       <div class="bill-card">
         <div class="bill-day" style="${isWeekly ? 'font-size:9px;' : ''}">${isWeekly ? dayNames[b.weekday].slice(0,3).toUpperCase() : b.day}</div>
