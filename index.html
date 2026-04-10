@@ -861,17 +861,32 @@
     <div class="form-group">
       <label>Category</label>
       <select id="txn-category">
-        <option value="food">🍔 Food & Dining</option>
+        <option value="housing">🏠 Housing / Mortgage / Rent</option>
+        <option value="car">🚗 Car Payment</option>
+        <option value="insurance">🛡️ Insurance</option>
+        <option value="utilities">💡 Utilities (Electric, Gas, Water)</option>
+        <option value="internet">📡 Internet / Phone / Cable</option>
+        <option value="subscriptions">📱 Subscriptions & Memberships</option>
         <option value="groceries">🛒 Groceries</option>
-        <option value="gas">⛽ Gas</option>
-        <option value="bills">📋 Bills & Utilities</option>
-        <option value="housing">🏠 Housing</option>
-        <option value="car">🚗 Car & Transportation</option>
-        <option value="health">🏥 Health</option>
-        <option value="shopping">🛍️ Shopping</option>
-        <option value="entertainment">🎬 Entertainment</option>
-        <option value="savings">💰 Savings / Transfer</option>
-        <option value="income">💵 Income / Deposit</option>
+        <option value="food">🍔 Food & Dining Out</option>
+        <option value="coffee">☕ Coffee & Drinks</option>
+        <option value="gas">⛽ Gas & Fuel</option>
+        <option value="transport">🚌 Transportation & Parking</option>
+        <option value="health">🏥 Medical & Health</option>
+        <option value="pharmacy">💊 Pharmacy</option>
+        <option value="pets">🐾 Pets</option>
+        <option value="kids">👶 Kids & Childcare</option>
+        <option value="shopping">🛍️ Shopping & Clothing</option>
+        <option value="household">🧹 Household & Home Improvement</option>
+        <option value="entertainment">🎬 Entertainment & Fun</option>
+        <option value="sports">⚽ Sports & Recreation</option>
+        <option value="travel">✈️ Travel & Vacation</option>
+        <option value="personal">💇 Personal Care & Beauty</option>
+        <option value="education">📚 Education</option>
+        <option value="charity">❤️ Charity & Gifts</option>
+        <option value="savings">💰 Savings & Investments</option>
+        <option value="transfer">🔄 Transfer / Payment to Self</option>
+        <option value="income">💵 Income / Paycheck</option>
         <option value="other">📌 Other</option>
       </select>
     </div>
@@ -950,13 +965,32 @@
     <div class="form-group">
       <label>Category</label>
       <select id="bill-category">
-        <option value="housing">🏠 Housing (Mortgage/Rent)</option>
+        <option value="housing">🏠 Housing / Mortgage / Rent</option>
         <option value="car">🚗 Car Payment</option>
-        <option value="bills">📋 Utilities</option>
-        <option value="health">🏥 Insurance / Health</option>
+        <option value="insurance">🛡️ Insurance</option>
+        <option value="utilities">💡 Utilities (Electric, Gas, Water)</option>
+        <option value="internet">📡 Internet / Phone / Cable</option>
+        <option value="subscriptions">📱 Subscriptions & Memberships</option>
         <option value="groceries">🛒 Groceries</option>
-        <option value="food">🍔 Food & Dining</option>
-        <option value="savings">💰 Savings</option>
+        <option value="food">🍔 Food & Dining Out</option>
+        <option value="coffee">☕ Coffee & Drinks</option>
+        <option value="gas">⛽ Gas & Fuel</option>
+        <option value="transport">🚌 Transportation & Parking</option>
+        <option value="health">🏥 Medical & Health</option>
+        <option value="pharmacy">💊 Pharmacy</option>
+        <option value="pets">🐾 Pets</option>
+        <option value="kids">👶 Kids & Childcare</option>
+        <option value="shopping">🛍️ Shopping & Clothing</option>
+        <option value="household">🧹 Household & Home Improvement</option>
+        <option value="entertainment">🎬 Entertainment & Fun</option>
+        <option value="sports">⚽ Sports & Recreation</option>
+        <option value="travel">✈️ Travel & Vacation</option>
+        <option value="personal">💇 Personal Care & Beauty</option>
+        <option value="education">📚 Education</option>
+        <option value="charity">❤️ Charity & Gifts</option>
+        <option value="savings">💰 Savings & Investments</option>
+        <option value="transfer">🔄 Transfer / Payment to Self</option>
+        <option value="income">💵 Income / Paycheck</option>
         <option value="other">📌 Other</option>
       </select>
     </div>
@@ -1300,8 +1334,16 @@ function renderDayDetail(day) {
     <div class="stat-item"><span class="stat-val" style="color:var(--pending-text)">$${pendAmt.toFixed(2)}</span><span class="stat-label">Pending</span></div>
   `;
 
-  const catLabels = {food:'Food',groceries:'Groceries',gas:'Gas',bills:'Bills',housing:'Housing',
-    car:'Car',health:'Health',shopping:'Shopping',entertainment:'Entertainment',savings:'Savings',income:'Income',other:'Other'};
+  const catLabels = {
+    housing:'Housing', car:'Car', insurance:'Insurance', utilities:'Utilities',
+    internet:'Internet/Phone', subscriptions:'Subscriptions', groceries:'Groceries',
+    food:'Food & Dining', coffee:'Coffee', gas:'Gas', transport:'Transport',
+    health:'Medical', pharmacy:'Pharmacy', pets:'Pets', kids:'Kids',
+    shopping:'Shopping', household:'Household', entertainment:'Entertainment',
+    sports:'Sports', travel:'Travel', personal:'Personal Care',
+    education:'Education', charity:'Charity/Gifts', savings:'Savings',
+    transfer:'Transfer', income:'Income', bills:'Bills', other:'Other'
+  };
 
   let html = '';
   if (all.length === 0) {
