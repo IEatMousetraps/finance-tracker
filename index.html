@@ -1534,14 +1534,26 @@ function renderCalendar() {
 
 // ── BALANCE BAR ───────────────────────────────────────────────────────────────
 function updateBalanceBar() {
-  // Only use real saved transactions for Month In/Out/Pending — not virtual
   const monthTxns = getTxnsForMonth(currentYear, currentMonth);
 
-  const out = monthTxns.filter(t => t.amount < 0 && t.status === 'completed').reduce((s,t) => s + t.amount, 0);
-  const inc = monthTxns.filter(t => t.amount > 0 && t.status === 'completed').reduce((s,t) => s + t.amount, 0);
-  const pending = monthTxns.filter(t => t.status === 'pending' || t.status === 'expected').reduce((s,t) => s + t.amount, 0);
+  // Also pull in virtual recurring entries for the month (they affect projected totals)
+  const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+  const virtualTxns = [];
+  for (let d = 1; d <= daysInMonth; d++) {
+    virtualTxns.push(...getBillsForDate(currentYear, currentMonth, d));
+  }
+  const allMonthTxns = [...monthTxns, ...virtualTxns];
 
+  const out = allMonthTxns.filter(t => t.amount < 0 && (t.status === 'completed' || t.isVirtualBill)).reduce((s,t) => s + t.amount, 0);
+  const inc = allMonthTxns.filter(t => t.amount > 0 && (t.status === 'completed' || t.isVirtualBill)).reduce((s,t) => s + t.amount, 0);
   const today = new Date();
+  const todayInt = today.getFullYear() * 10000 + today.getMonth() * 100 + today.getDate();
+  const pending = monthTxns.filter(t => {
+    if (t.status !== 'pending') return false;
+    const tInt = t.year * 10000 + t.month * 100 + t.day;
+    return tInt <= todayInt;
+  }).reduce((s,t) => s + t.amount, 0);
+
   const curBal = calcRunningBalance(today.getFullYear(), today.getMonth(), today.getDate());
 
   document.getElementById('bal-current').textContent = `$${curBal.toFixed(2)}`;
@@ -1551,16 +1563,23 @@ function updateBalanceBar() {
 }
 
 function openPendingSummary() {
-  // Gather all pending/expected real transactions across all time
+  const today = new Date();
+  const todayInt = today.getFullYear() * 10000 + today.getMonth() * 100 + today.getDate();
+
+  // Only show REAL pending (purple) transactions — not expected, not virtual
+  // Only transactions on or before today (true "waiting to clear" charges)
   const pending = allTransactions
-    .filter(t => t.status === 'pending' || t.status === 'expected')
+    .filter(t => {
+      if (t.status !== 'pending') return false;
+      const tInt = t.year * 10000 + t.month * 100 + t.day;
+      return tInt <= todayInt;
+    })
     .sort((a,b) => (a.year*10000+a.month*100+a.day) - (b.year*10000+b.month*100+b.day));
 
   const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-
-  const total = pending.reduce((s,t) => s + t.amount, 0);
   const totalOut = pending.filter(t=>t.amount<0).reduce((s,t)=>s+t.amount,0);
   const totalIn = pending.filter(t=>t.amount>0).reduce((s,t)=>s+t.amount,0);
+  const total = totalOut + totalIn;
 
   const CAT_LABELS_LOCAL = {
     housing:'Housing', car:'Car Payment', insurance:'Insurance', utilities:'Utilities',
@@ -1580,17 +1599,12 @@ function openPendingSummary() {
     const rows = pending.map(t => {
       const sign = t.amount > 0 ? '+' : '';
       const amtColor = t.amount > 0 ? 'var(--green)' : 'var(--red)';
-      const statusColor = t.status === 'expected' ? 'var(--expected-text)' : 'var(--pending-text)';
-      const statusBg = t.status === 'expected' ? 'var(--expected-bg)' : 'var(--pending-bg)';
       return `
-        <div class="report-txn-row" style="cursor:pointer;" onclick="closeModal('pending-modal');openDay(${t.day})">
+        <div class="report-txn-row" style="cursor:pointer;" onclick="closeModal('pending-modal');currentYear=${t.year};currentMonth=${t.month};renderCalendar();openDay(${t.day})">
           <span class="report-txn-date">${months[t.month]} ${t.day}</span>
           <div class="report-txn-desc">
             <div>${t.description}</div>
-            <div class="report-txn-cat" style="display:flex;gap:4px;margin-top:2px;">
-              <span>${CAT_LABELS_LOCAL[t.category] || t.category}</span>
-              <span style="background:${statusBg};color:${statusColor};padding:1px 5px;border-radius:3px;font-size:9px;">${t.status}</span>
-            </div>
+            <div class="report-txn-cat">${CAT_LABELS_LOCAL[t.category] || t.category}</div>
           </div>
           <span class="report-txn-amt" style="color:${amtColor};">${sign}$${Math.abs(t.amount).toFixed(2)}</span>
         </div>`;
@@ -1598,13 +1612,20 @@ function openPendingSummary() {
 
     document.getElementById('pending-modal-content').innerHTML = `
       <div style="display:flex;gap:16px;margin-bottom:16px;padding:12px;background:var(--surface2);border-radius:var(--radius);">
-        <div><div style="font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted);">Total Out</div>
-          <div style="font-size:16px;font-weight:500;color:var(--red);">-$${Math.abs(totalOut).toFixed(2)}</div></div>
-        <div><div style="font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted);">Total In</div>
-          <div style="font-size:16px;font-weight:500;color:var(--green);">+$${totalIn.toFixed(2)}</div></div>
-        <div><div style="font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted);">Net</div>
-          <div style="font-size:16px;font-weight:500;color:${total>=0?'var(--green)':'var(--red)'};">${total>=0?'+':''}$${total.toFixed(2)}</div></div>
+        <div>
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted);">Pending Out</div>
+          <div style="font-size:16px;font-weight:500;color:var(--red);">-$${Math.abs(totalOut).toFixed(2)}</div>
+        </div>
+        <div>
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted);">Pending In</div>
+          <div style="font-size:16px;font-weight:500;color:var(--green);">+$${totalIn.toFixed(2)}</div>
+        </div>
+        <div>
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted);">Net Impact</div>
+          <div style="font-size:16px;font-weight:500;color:${total>=0?'var(--green)':'var(--red)'};">${total>=0?'+':''}$${total.toFixed(2)}</div>
+        </div>
       </div>
+      <p style="font-size:10px;color:var(--text-muted);margin-bottom:10px;letter-spacing:0.04em;">CHARGES LOGGED AS PENDING — TAP TO VIEW DAY</p>
       ${rows}`;
   }
   openModal('pending-modal');
