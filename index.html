@@ -1013,6 +1013,35 @@
   </div>
 </div>
 
+<!-- LOG RECURRING ENTRY MODAL -->
+<div class="modal-overlay" id="log-bill-modal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <h3 id="log-bill-title">Log Entry</h3>
+    <p style="font-size:12px;color:var(--text-muted);margin-bottom:16px;" id="log-bill-desc"></p>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Amount ($)</label>
+        <input type="number" step="0.01" id="log-bill-amount" inputmode="decimal" placeholder="0.00">
+      </div>
+      <div class="form-group">
+        <label>Date</label>
+        <input type="date" id="log-bill-date">
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Status</label>
+      <div class="status-toggle">
+        <div class="status-opt pending" id="log-status-pending">Pending</div>
+        <div class="status-opt expected" id="log-status-expected">Expected</div>
+        <div class="status-opt completed selected" id="log-status-completed">Completed</div>
+      </div>
+    </div>
+    <button class="btn btn-primary" id="btn-confirm-log-bill">Save</button>
+    <button class="btn btn-secondary" id="btn-cancel-log-bill" style="margin-top:8px;">Cancel</button>
+  </div>
+</div>
+
 <!-- MOVE DATE MODAL -->
 <div class="modal-overlay" id="move-modal">
   <div class="modal">
@@ -1434,8 +1463,7 @@ function renderDayDetail(day) {
         <span class="txn-amount ${amtCls}">${sign}$${Math.abs(t.amount).toFixed(2)}</span>
         <div class="txn-actions">
           ${isVirtual ? `
-            <button class="txn-btn confirm" onclick="confirmBill('${t.billRef.id}', ${day})">${t.billRef.type === 'income' ? '✓ Received' : '✓ Paid'}</button>
-            <button class="txn-btn" style="background:var(--pending-bg);color:var(--pending-text);" onclick="pendingBill('${t.billRef.id}', ${day})">Pending</button>
+            <button class="txn-btn confirm" onclick="openLogBill('${t.billRef.id}', ${day})">Log</button>
             <button class="txn-btn edit" onclick="moveBill('${t.billRef.id}', ${day})">Move</button>
           ` : `
             <button class="txn-btn edit" onclick="editTxn('${t.id}')">Edit</button>
@@ -1448,45 +1476,63 @@ function renderDayDetail(day) {
   document.getElementById('day-txn-list').innerHTML = html;
 }
 
-// ── CONFIRM BILL (virtual → real completed) ───────────────────────────────────
-async function confirmBill(billId, day) {
-  const bill = recurringBills.find(b => b.id === billId);
-  if (!bill) return;
-  const amount = bill.type === 'income' ? Math.abs(bill.amount) : -Math.abs(bill.amount);
-  await addDoc(collection(db, 'transactions'), {
-    description: bill.name,
-    amount,
-    category: bill.category,
-    status: 'completed',
-    year: currentYear,
-    month: currentMonth,
-    day: day,
-    recurringBillId: billId,
-    createdAt: new Date().toISOString()
+// ── LOG RECURRING ENTRY (with editable amount) ────────────────────────────────
+let loggingBillId = null;
+let loggingBillDay = null;
+let logBillStatus = 'completed';
+
+function setLogStatus(status) {
+  logBillStatus = status;
+  ['pending','expected','completed'].forEach(s => {
+    document.getElementById('log-status-' + s).classList.toggle('selected', s === status);
   });
-  await loadTransactions();
-  renderDayDetail(day);
-  renderCalendar();
 }
 
-// ── PENDING BILL (virtual → real pending) ─────────────────────────────────────
-async function pendingBill(billId, day) {
+function openLogBill(billId, day) {
   const bill = recurringBills.find(b => b.id === billId);
   if (!bill) return;
-  const amount = bill.type === 'income' ? Math.abs(bill.amount) : -Math.abs(bill.amount);
+  loggingBillId = billId;
+  loggingBillDay = day;
+  const isIncome = bill.type === 'income';
+
+  document.getElementById('log-bill-title').textContent = isIncome ? 'Log Income' : 'Log Payment';
+  document.getElementById('log-bill-desc').textContent = `${bill.name} · recurring ${isIncome ? 'deposit' : 'bill'}`;
+  document.getElementById('log-bill-amount').value = bill.amount.toFixed(2);
+  document.getElementById('log-bill-date').value =
+    `${currentYear}-${String(currentMonth + 1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+  setLogStatus(isIncome ? 'completed' : 'completed');
+  closeModal('day-modal');
+  openModal('log-bill-modal');
+}
+
+async function confirmLogBill() {
+  const bill = recurringBills.find(b => b.id === loggingBillId);
+  if (!bill) return;
+
+  const rawAmt = parseFloat(document.getElementById('log-bill-amount').value);
+  const dateVal = document.getElementById('log-bill-date').value;
+  if (isNaN(rawAmt) || rawAmt <= 0) return alert('Please enter a valid amount');
+  if (!dateVal) return alert('Please select a date');
+
+  const [y, m, d] = dateVal.split('-').map(Number);
+  const amount = bill.type === 'income' ? Math.abs(rawAmt) : -Math.abs(rawAmt);
+
   await addDoc(collection(db, 'transactions'), {
     description: bill.name,
     amount,
     category: bill.category,
-    status: 'pending',
-    year: currentYear,
-    month: currentMonth,
-    day: day,
-    recurringBillId: billId,
+    status: logBillStatus,
+    year: y,
+    month: m - 1,
+    day: d,
+    recurringBillId: loggingBillId,
     createdAt: new Date().toISOString()
   });
+
+  loggingBillId = null;
+  loggingBillDay = null;
+  closeModal('log-bill-modal');
   await loadTransactions();
-  renderDayDetail(day);
   renderCalendar();
 }
 
@@ -1994,8 +2040,7 @@ document.addEventListener('DOMContentLoaded', () => {
   window.openDay = openDay;
   window.editTxn = editTxn;
   window.confirmDeleteTxn = confirmDeleteTxn;
-  window.confirmBill = confirmBill;
-  window.pendingBill = pendingBill;
+  window.openLogBill = openLogBill;
   window.moveTxn = moveTxn;
   window.moveBill = moveBill;
   window.editBill = editBill;
@@ -2032,6 +2077,13 @@ document.addEventListener('DOMContentLoaded', () => {
   // Day modal
   document.getElementById('btn-add-txn-for-day').addEventListener('click', () => openAddTransactionForDay());
   document.getElementById('btn-close-day-modal').addEventListener('click', () => closeModal('day-modal'));
+
+  // Log recurring entry modal
+  document.getElementById('btn-confirm-log-bill').addEventListener('click', () => confirmLogBill());
+  document.getElementById('btn-cancel-log-bill').addEventListener('click', () => closeModal('log-bill-modal'));
+  document.getElementById('log-status-pending').addEventListener('click', () => setLogStatus('pending'));
+  document.getElementById('log-status-expected').addEventListener('click', () => setLogStatus('expected'));
+  document.getElementById('log-status-completed').addEventListener('click', () => setLogStatus('completed'));
 
   // Move modal
   document.getElementById('btn-confirm-move').addEventListener('click', () => confirmMove());
