@@ -716,7 +716,7 @@
   <main>
     <div class="settings-section">
       <h3>Opening Balance</h3>
-      <p style="font-size:12px;color:var(--text-muted);margin-bottom:14px;">Your checking account balance as of April 1, 2025</p>
+      <p style="font-size:12px;color:var(--text-muted);margin-bottom:14px;">Your checking account balance as of April 10, 2025</p>
       <div class="form-group">
         <label>Starting Balance ($)</label>
         <input type="number" step="0.01" id="opening-balance-input" placeholder="e.g. 2500.00">
@@ -885,7 +885,7 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
 // ── STATE ────────────────────────────────────────────────────────────────────
-const START_DATE = new Date(2025, 3, 1); // April 1, 2025 (month is 0-indexed)
+const START_DATE = new Date(2025, 3, 10); // April 10, 2025 (month is 0-indexed)
 let currentYear = new Date().getFullYear();
 let currentMonth = new Date().getMonth();
 let allTransactions = []; // cache for current month + adjacent
@@ -1000,7 +1000,7 @@ function calcRunningBalance(upToYear, upToMonth, upToDay) {
   
   // Build date comparison
   const toDate = upToYear * 10000 + upToMonth * 100 + upToDay;
-  const startDate = 2025 * 10000 + 3 * 100 + 1; // April 1 2025
+  const startDate = 2025 * 10000 + 3 * 100 + 10; // April 10 2025
 
   allTxns.sort((a, b) => {
     const da = a.year * 10000 + a.month * 100 + a.day;
