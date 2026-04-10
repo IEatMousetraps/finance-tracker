@@ -797,8 +797,8 @@
     </div>
 
     <div class="settings-section">
-      <h3>Recurring Bills</h3>
-      <p style="font-size:12px;color:var(--text-muted);margin-bottom:14px;">These will auto-appear as pending on their due date each month.</p>
+      <h3>Recurring Bills & Deposits</h3>
+      <p style="font-size:12px;color:var(--text-muted);margin-bottom:14px;">These will auto-appear as expected on their due date each month.</p>
       <div class="bills-grid" id="bills-list">
         <div class="empty-state"><div class="icon">📋</div>No recurring bills added</div>
       </div>
@@ -921,10 +921,17 @@
 <div class="modal-overlay" id="bill-modal">
   <div class="modal">
     <div class="modal-handle"></div>
-    <h3 id="bill-modal-title">Add Recurring Bill</h3>
+    <h3 id="bill-modal-title">Add Recurring Entry</h3>
     <div class="form-group">
-      <label>Bill Name</label>
-      <input type="text" id="bill-name" placeholder="e.g. Mortgage, Groceries, Car Payment">
+      <label>Type</label>
+      <div class="type-toggle" style="margin-bottom:0;">
+        <div class="type-opt expense selected" id="bill-type-expense">− Expense</div>
+        <div class="type-opt income" id="bill-type-income">+ Income / Deposit</div>
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Name</label>
+      <input type="text" id="bill-name" placeholder="e.g. Mortgage, Paycheck, Child Support">
     </div>
     <div class="form-group">
       <label>Frequency</label>
@@ -1088,10 +1095,11 @@ let editingBillId = null;
 let editingCardId = null;
 let txnType = 'expense';
 let txnStatus = 'pending';
-let movingTxnId = null;     // id of real txn being moved
-let movingBillId = null;    // id of virtual bill being moved
-let movingBillDay = null;   // original day of the virtual bill
-let moveStatus = 'expected'; // default status when moving
+let movingTxnId = null;
+let movingBillId = null;
+let movingBillDay = null;
+let moveStatus = 'expected';
+let billType = 'expense';
 
 // Ensure we don't go before April 2026
 if (currentYear < 2026 || (currentYear === 2026 && currentMonth < 3)) {
@@ -1185,7 +1193,7 @@ function getBillsForDate(year, month, day) {
   }).map(b => ({
     id: 'bill_' + b.id + '_' + day,
     description: b.name,
-    amount: -Math.abs(b.amount),
+    amount: b.type === 'income' ? Math.abs(b.amount) : -Math.abs(b.amount),
     category: b.category,
     status: 'pending',
     isVirtualBill: true,
@@ -1426,7 +1434,7 @@ function renderDayDetail(day) {
         <span class="txn-amount ${amtCls}">${sign}$${Math.abs(t.amount).toFixed(2)}</span>
         <div class="txn-actions">
           ${isVirtual ? `
-            <button class="txn-btn confirm" onclick="confirmBill('${t.billRef.id}', ${day})">✓ Paid</button>
+            <button class="txn-btn confirm" onclick="confirmBill('${t.billRef.id}', ${day})">${t.billRef.type === 'income' ? '✓ Received' : '✓ Paid'}</button>
             <button class="txn-btn" style="background:var(--pending-bg);color:var(--pending-text);" onclick="pendingBill('${t.billRef.id}', ${day})">Pending</button>
             <button class="txn-btn edit" onclick="moveBill('${t.billRef.id}', ${day})">Move</button>
           ` : `
@@ -1444,9 +1452,10 @@ function renderDayDetail(day) {
 async function confirmBill(billId, day) {
   const bill = recurringBills.find(b => b.id === billId);
   if (!bill) return;
+  const amount = bill.type === 'income' ? Math.abs(bill.amount) : -Math.abs(bill.amount);
   await addDoc(collection(db, 'transactions'), {
     description: bill.name,
-    amount: -Math.abs(bill.amount),
+    amount,
     category: bill.category,
     status: 'completed',
     year: currentYear,
@@ -1464,9 +1473,10 @@ async function confirmBill(billId, day) {
 async function pendingBill(billId, day) {
   const bill = recurringBills.find(b => b.id === billId);
   if (!bill) return;
+  const amount = bill.type === 'income' ? Math.abs(bill.amount) : -Math.abs(bill.amount);
   await addDoc(collection(db, 'transactions'), {
     description: bill.name,
-    amount: -Math.abs(bill.amount),
+    amount,
     category: bill.category,
     status: 'pending',
     year: currentYear,
@@ -1530,12 +1540,12 @@ async function confirmMove() {
       year: y, month: m - 1, day: d, status: moveStatus
     });
   } else if (movingBillId) {
-    // Convert virtual bill to real transaction on new date
     const bill = recurringBills.find(b => b.id === movingBillId);
     if (!bill) return;
+    const amount = bill.type === 'income' ? Math.abs(bill.amount) : -Math.abs(bill.amount);
     await addDoc(collection(db, 'transactions'), {
       description: bill.name,
-      amount: -Math.abs(bill.amount),
+      amount,
       category: bill.category,
       status: moveStatus,
       year: y,
@@ -1650,6 +1660,12 @@ async function deleteTxn() {
 }
 
 // ── BILLS ─────────────────────────────────────────────────────────────────────
+function setBillType(type) {
+  billType = type;
+  document.getElementById('bill-type-expense').classList.toggle('selected', type === 'expense');
+  document.getElementById('bill-type-income').classList.toggle('selected', type === 'income');
+}
+
 function setBillFrequency(freq) {
   const isWeekly = freq === 'weekly';
   document.getElementById('freq-monthly').classList.toggle('selected', !isWeekly);
@@ -1661,15 +1677,16 @@ function setBillFrequency(freq) {
 
 function openAddBill() {
   editingBillId = null;
-  document.getElementById('bill-modal-title').textContent = 'Add Recurring Bill';
+  document.getElementById('bill-modal-title').textContent = 'Add Recurring Entry';
   document.getElementById('delete-bill-btn').style.display = 'none';
   document.getElementById('bill-name').value = '';
   document.getElementById('bill-amount').value = '';
   document.getElementById('bill-day').value = '';
-  document.getElementById('bill-weekday').value = '6'; // default Saturday
+  document.getElementById('bill-weekday').value = '6';
   document.getElementById('bill-interval').value = '1';
   document.getElementById('bill-effective-date').value = '';
   document.getElementById('bill-category').value = 'housing';
+  setBillType('expense');
   setBillFrequency('monthly');
   openModal('bill-modal');
 }
@@ -1680,19 +1697,20 @@ async function saveBill() {
   const cat = document.getElementById('bill-category').value;
   const effectiveDate = document.getElementById('bill-effective-date').value || null;
   const frequency = document.getElementById('freq-weekly').classList.contains('selected') ? 'weekly' : 'monthly';
+  const type = billType; // 'expense' or 'income'
 
-  if (!name) return alert('Please enter a bill name');
+  if (!name) return alert('Please enter a name');
   if (isNaN(amt) || amt <= 0) return alert('Please enter a valid amount');
 
   let data;
   if (frequency === 'weekly') {
     const weekday = parseInt(document.getElementById('bill-weekday').value);
     const interval = parseInt(document.getElementById('bill-interval').value) || 1;
-    data = { name, amount: amt, category: cat, frequency: 'weekly', weekday, interval, effectiveDate };
+    data = { name, amount: amt, category: cat, frequency: 'weekly', weekday, interval, effectiveDate, type };
   } else {
     const day = parseInt(document.getElementById('bill-day').value);
     if (isNaN(day) || day < 1 || day > 31) return alert('Please enter a valid day (1-31)');
-    data = { name, amount: amt, category: cat, frequency: 'monthly', day, effectiveDate };
+    data = { name, amount: amt, category: cat, frequency: 'monthly', day, effectiveDate, type };
   }
 
   if (editingBillId) {
@@ -1710,12 +1728,13 @@ function editBill(id) {
   const b = recurringBills.find(b => b.id === id);
   if (!b) return;
   editingBillId = id;
-  document.getElementById('bill-modal-title').textContent = 'Edit Bill';
+  document.getElementById('bill-modal-title').textContent = 'Edit Recurring Entry';
   document.getElementById('delete-bill-btn').style.display = '';
   document.getElementById('bill-name').value = b.name;
   document.getElementById('bill-amount').value = b.amount;
   document.getElementById('bill-category').value = b.category;
   document.getElementById('bill-effective-date').value = b.effectiveDate || '';
+  setBillType(b.type || 'expense');
   if (b.frequency === 'weekly') {
     setBillFrequency('weekly');
     document.getElementById('bill-weekday').value = b.weekday;
@@ -1748,12 +1767,11 @@ async function quickDeleteBill(id) {
 function renderBills() {
   const container = document.getElementById('bills-list');
   if (recurringBills.length === 0) {
-    container.innerHTML = `<div class="empty-state"><div class="icon">📋</div>No recurring bills added</div>`;
+    container.innerHTML = `<div class="empty-state"><div class="icon">📋</div>No recurring entries added</div>`;
     return;
   }
   const dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
   const sorted = [...recurringBills].sort((a,b) => {
-    // Sort monthly by day, weekly by weekday, monthly before weekly
     if (a.frequency === 'weekly' && b.frequency !== 'weekly') return 1;
     if (a.frequency !== 'weekly' && b.frequency === 'weekly') return -1;
     if (a.frequency === 'weekly') return a.weekday - b.weekday;
@@ -1761,19 +1779,26 @@ function renderBills() {
   });
   container.innerHTML = sorted.map(b => {
     const isWeekly = b.frequency === 'weekly';
-    const label = isWeekly ? dayNames[b.weekday] : b.day;
+    const isIncome = b.type === 'income';
     const effectiveStr = b.effectiveDate ? ` · starts ${b.effectiveDate}` : '';
-    const meta = isWeekly
-      ? `Every ${(b.interval || 1) > 1 ? `${b.interval} weeks on ` : ''}${dayNames[b.weekday]}${effectiveStr}`
-      : `Due on the ${b.day}${ordinal(b.day)} each month${effectiveStr}`;
+    const freqStr = isWeekly
+      ? `Every ${(b.interval || 1) > 1 ? `${b.interval} weeks on ` : ''}${dayNames[b.weekday]}`
+      : `Due on the ${b.day}${ordinal(b.day)} each month`;
+    const meta = freqStr + effectiveStr;
+    const amountDisplay = isIncome
+      ? `<span class="bill-amount" style="color:var(--green);">+$${b.amount.toFixed(2)}</span>`
+      : `<span class="bill-amount">-$${b.amount.toFixed(2)}</span>`;
+    const dayBadgeStyle = isIncome
+      ? `background:var(--green);${isWeekly ? 'font-size:9px;' : ''}`
+      : isWeekly ? 'font-size:9px;' : '';
     return `
       <div class="bill-card">
-        <div class="bill-day" style="${isWeekly ? 'font-size:9px;' : ''}">${isWeekly ? dayNames[b.weekday].slice(0,3).toUpperCase() : b.day}</div>
+        <div class="bill-day" style="${dayBadgeStyle}">${isWeekly ? dayNames[b.weekday].slice(0,3).toUpperCase() : b.day}</div>
         <div class="bill-info">
           <div class="bill-name">${b.name}</div>
-          <div class="bill-meta">${meta}</div>
+          <div class="bill-meta">${isIncome ? '💵 Income · ' : ''}${meta}</div>
         </div>
-        <span class="bill-amount">-$${b.amount.toFixed(2)}</span>
+        ${amountDisplay}
         <div class="bill-actions">
           <button class="icon-btn" onclick="editBill('${b.id}')">✏️</button>
           <button class="icon-btn danger" onclick="quickDeleteBill('${b.id}')">✕</button>
@@ -2017,6 +2042,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Bill modal
   document.getElementById('btn-add-bill').addEventListener('click', () => openAddBill());
+  document.getElementById('bill-type-expense').addEventListener('click', () => setBillType('expense'));
+  document.getElementById('bill-type-income').addEventListener('click', () => setBillType('income'));
   document.getElementById('freq-monthly').addEventListener('click', () => setBillFrequency('monthly'));
   document.getElementById('freq-weekly').addEventListener('click', () => setBillFrequency('weekly'));
   document.getElementById('btn-save-bill').addEventListener('click', () => saveBill());
