@@ -995,6 +995,11 @@
         <option value="other">📌 Other</option>
       </select>
     </div>
+    <div class="form-group">
+      <label>Effective From</label>
+      <input type="date" id="bill-effective-date">
+      <p style="font-size:10px;color:var(--text-muted);margin-top:6px;">Bill will only appear on dates on or after this date. Leave blank to start immediately.</p>
+    </div>
     <button class="btn btn-primary" id="btn-save-bill">Save Bill</button>
     <button class="btn btn-secondary" id="btn-cancel-bill" style="margin-top:8px;">Cancel</button>
     <button class="btn btn-danger" id="delete-bill-btn" style="display:none;">Remove Bill</button>
@@ -1153,21 +1158,25 @@ async function loadBills() {
 
 function getBillsForDate(year, month, day) {
   const dateObj = new Date(year, month, day);
-  const weekday = dateObj.getDay(); // 0=Sun, 6=Sat
+  const weekday = dateObj.getDay();
 
   const bills = recurringBills.filter(b => {
+    // Check effective date — skip if this date is before the bill starts
+    if (b.effectiveDate) {
+      const [ey, em, ed] = b.effectiveDate.split('-').map(Number);
+      const effectiveObj = new Date(ey, em - 1, ed);
+      if (dateObj < effectiveObj) return false;
+    }
+
     if (b.frequency === 'weekly') {
-      // Must be the right day of week first
       if (b.weekday !== weekday) return false;
-      // If interval is 1 (every week), always matches
       const interval = b.interval || 1;
       if (interval === 1) return true;
-      // For every N weeks: count weeks from START_DATE anchor
       const msPerWeek = 7 * 24 * 60 * 60 * 1000;
       const weeksDiff = Math.round((dateObj - START_DATE) / msPerWeek);
       return weeksDiff >= 0 && weeksDiff % interval === 0;
     }
-    return b.day === day; // monthly
+    return b.day === day;
   });
 
   const existing = getTxnsForDate(year, month, day);
@@ -1638,6 +1647,7 @@ function openAddBill() {
   document.getElementById('bill-day').value = '';
   document.getElementById('bill-weekday').value = '6'; // default Saturday
   document.getElementById('bill-interval').value = '1';
+  document.getElementById('bill-effective-date').value = '';
   document.getElementById('bill-category').value = 'housing';
   setBillFrequency('monthly');
   openModal('bill-modal');
@@ -1647,6 +1657,7 @@ async function saveBill() {
   const name = document.getElementById('bill-name').value.trim();
   const amt = parseFloat(document.getElementById('bill-amount').value);
   const cat = document.getElementById('bill-category').value;
+  const effectiveDate = document.getElementById('bill-effective-date').value || null;
   const frequency = document.getElementById('freq-weekly').classList.contains('selected') ? 'weekly' : 'monthly';
 
   if (!name) return alert('Please enter a bill name');
@@ -1656,11 +1667,11 @@ async function saveBill() {
   if (frequency === 'weekly') {
     const weekday = parseInt(document.getElementById('bill-weekday').value);
     const interval = parseInt(document.getElementById('bill-interval').value) || 1;
-    data = { name, amount: amt, category: cat, frequency: 'weekly', weekday, interval };
+    data = { name, amount: amt, category: cat, frequency: 'weekly', weekday, interval, effectiveDate };
   } else {
     const day = parseInt(document.getElementById('bill-day').value);
     if (isNaN(day) || day < 1 || day > 31) return alert('Please enter a valid day (1-31)');
-    data = { name, amount: amt, category: cat, frequency: 'monthly', day };
+    data = { name, amount: amt, category: cat, frequency: 'monthly', day, effectiveDate };
   }
 
   if (editingBillId) {
@@ -1683,6 +1694,7 @@ function editBill(id) {
   document.getElementById('bill-name').value = b.name;
   document.getElementById('bill-amount').value = b.amount;
   document.getElementById('bill-category').value = b.category;
+  document.getElementById('bill-effective-date').value = b.effectiveDate || '';
   if (b.frequency === 'weekly') {
     setBillFrequency('weekly');
     document.getElementById('bill-weekday').value = b.weekday;
@@ -1729,9 +1741,10 @@ function renderBills() {
   container.innerHTML = sorted.map(b => {
     const isWeekly = b.frequency === 'weekly';
     const label = isWeekly ? dayNames[b.weekday] : b.day;
+    const effectiveStr = b.effectiveDate ? ` · starts ${b.effectiveDate}` : '';
     const meta = isWeekly
-      ? `Every ${(b.interval || 1) > 1 ? `${b.interval} weeks on ` : ''}${dayNames[b.weekday]}`
-      : `Due on the ${b.day}${ordinal(b.day)} each month`;
+      ? `Every ${(b.interval || 1) > 1 ? `${b.interval} weeks on ` : ''}${dayNames[b.weekday]}${effectiveStr}`
+      : `Due on the ${b.day}${ordinal(b.day)} each month${effectiveStr}`;
     return `
       <div class="bill-card">
         <div class="bill-day" style="${isWeekly ? 'font-size:9px;' : ''}">${isWeekly ? dayNames[b.weekday].slice(0,3).toUpperCase() : b.day}</div>
