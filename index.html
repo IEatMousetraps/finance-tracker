@@ -1209,8 +1209,14 @@ function getBillsForDate(year, month, day) {
       if (b.weekday !== weekday) return false;
       const interval = b.interval || 1;
       if (interval === 1) return true;
+      // Count weeks from the effective date (if set) or START_DATE as anchor
       const msPerWeek = 7 * 24 * 60 * 60 * 1000;
-      const weeksDiff = Math.round((dateObj - START_DATE) / msPerWeek);
+      let anchor = START_DATE;
+      if (b.effectiveDate) {
+        const [ey, em, ed] = b.effectiveDate.split('-').map(Number);
+        anchor = new Date(ey, em - 1, ed);
+      }
+      const weeksDiff = Math.round((dateObj - anchor) / msPerWeek);
       return weeksDiff >= 0 && weeksDiff % interval === 0;
     }
     return b.day === day;
