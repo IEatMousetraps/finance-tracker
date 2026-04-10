@@ -1062,25 +1062,23 @@ function getBillsForDate(year, month, day) {
 
 // ── BALANCE CALCULATION ───────────────────────────────────────────────────────
 function calcRunningBalance(upToYear, upToMonth, upToDay) {
-  // Sum all transactions from April 15, 2025 through the given date (inclusive)
+  // Start from opening balance, add only COMPLETED real transactions up to and including this date
   let bal = openingBalance;
-  const allTxns = [...allTransactions];
-  
-  // Build date comparison
-  const toDate = upToYear * 10000 + upToMonth * 100 + upToDay;
-  const startDate = 2025 * 10000 + 3 * 100 + 10; // April 10 2025
 
-  allTxns.sort((a, b) => {
-    const da = a.year * 10000 + a.month * 100 + a.day;
-    const db2 = b.year * 10000 + b.month * 100 + b.day;
-    return da - db2;
-  });
+  // Convert start date and target date to comparable integers
+  // Month is 0-indexed everywhere (April = 3)
+  const startInt = 20250000 + 3 * 100 + 10; // April 10, 2025 → 20250310
+  const toInt = upToYear * 10000 + upToMonth * 100 + upToDay;
 
-  for (const t of allTxns) {
-    const tDate = t.year * 10000 + t.month * 100 + t.day;
-    if (tDate < startDate || tDate > toDate) continue;
-    if (t.status === 'completed') bal += t.amount;
+  for (const t of allTransactions) {
+    const tInt = t.year * 10000 + t.month * 100 + t.day;
+    // Only include completed transactions ON OR AFTER the start date, up to target date
+    if (t.status !== 'completed') continue;
+    if (tInt < startInt) continue;
+    if (tInt > toInt) continue;
+    bal += t.amount;
   }
+
   return bal;
 }
 
