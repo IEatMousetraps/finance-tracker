@@ -1362,6 +1362,13 @@
         <div class="status-opt completed selected" id="log-status-completed">Completed</div>
       </div>
     </div>
+    <!-- CC mirror option — shown only when bill matches a credit card -->
+    <div id="log-bill-cc-mirror" style="display:none;margin-bottom:14px;padding:12px;background:var(--pending-bg);border-radius:var(--radius);border:1px solid var(--pending-border);">
+      <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13px;">
+        <input type="checkbox" id="log-bill-cc-check" checked style="width:16px;height:16px;cursor:pointer;">
+        <span>Also record as payment on <strong id="log-bill-cc-card-name"></strong> CC calendar</span>
+      </label>
+    </div>
     <button class="btn btn-primary" id="btn-confirm-log-bill">Save</button>
     <button class="btn btn-secondary" id="btn-cancel-log-bill" style="margin-top:8px;">Cancel</button>
   </div>
@@ -2477,7 +2484,24 @@ function openLogBill(billId, day) {
   document.getElementById('log-bill-amount').value = bill.amount.toFixed(2);
   document.getElementById('log-bill-date').value =
     `${currentYear}-${String(currentMonth + 1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
-  setLogStatus(isIncome ? 'completed' : 'completed');
+  setLogStatus('completed');
+
+  // Check if bill name matches a credit card — offer to mirror as CC payment
+  const matchedCard = creditCards.find(c =>
+    bill.name.toLowerCase().includes(c.name.toLowerCase()) ||
+    c.name.toLowerCase().includes(bill.name.toLowerCase())
+  );
+  const mirrorEl = document.getElementById('log-bill-cc-mirror');
+  if (matchedCard && !isIncome) {
+    mirrorEl.style.display = '';
+    mirrorEl.dataset.cardId = matchedCard.id;
+    mirrorEl.dataset.cardName = matchedCard.name;
+    document.getElementById('log-bill-cc-card-name').textContent = matchedCard.name;
+    document.getElementById('log-bill-cc-check').checked = true;
+  } else {
+    mirrorEl.style.display = 'none';
+  }
+
   closeModal('day-modal');
   openModal('log-bill-modal');
 }
@@ -2494,6 +2518,7 @@ async function confirmLogBill() {
   const [y, m, d] = dateVal.split('-').map(Number);
   const amount = bill.type === 'income' ? Math.abs(rawAmt) : -Math.abs(rawAmt);
 
+  // Save to main checking calendar
   await addDoc(collection(db, 'transactions'), {
     description: bill.name,
     amount,
@@ -2505,6 +2530,29 @@ async function confirmLogBill() {
     recurringBillId: loggingBillId,
     createdAt: new Date().toISOString()
   });
+
+  // Mirror to CC calendar if checkbox is checked
+  const mirrorEl = document.getElementById('log-bill-cc-mirror');
+  const shouldMirror = mirrorEl.style.display !== 'none' &&
+    document.getElementById('log-bill-cc-check').checked;
+
+  if (shouldMirror) {
+    const cardId = mirrorEl.dataset.cardId;
+    const cardName = mirrorEl.dataset.cardName;
+    await addDoc(collection(db, 'ccTransactions'), {
+      description: `Payment – ${bill.name}`,
+      amount: Math.abs(rawAmt), // positive = payment on CC calendar
+      category: 'transfer',
+      status: logBillStatus,
+      year: y,
+      month: m - 1,
+      day: d,
+      cardId,
+      cardName,
+      createdAt: new Date().toISOString()
+    });
+    await loadCCTransactions();
+  }
 
   loggingBillId = null;
   loggingBillDay = null;
