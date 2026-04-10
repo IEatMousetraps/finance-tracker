@@ -136,7 +136,7 @@
   .balance-item { display: flex; align-items: baseline; gap: 4px; }
 
   /* MAIN CONTENT */
-  main { padding: 16px; max-width: 900px; margin: 0 auto; }
+  main { padding: 16px; max-width: 1400px; margin: 0 auto; }
 
   /* MONTH HEADER */
   .month-nav {
@@ -179,15 +179,15 @@
     background: var(--text);
     color: var(--bg);
     text-align: center;
-    padding: 8px 4px;
-    font-size: 10px;
+    padding: 10px 4px;
+    font-size: 11px;
     letter-spacing: 0.1em;
     text-transform: uppercase;
   }
   .day-cell {
     background: var(--surface);
-    min-height: 90px;
-    padding: 6px;
+    min-height: 140px;
+    padding: 10px;
     cursor: pointer;
     transition: background 0.15s;
     position: relative;
@@ -199,40 +199,40 @@
   .day-cell.today { box-shadow: inset 0 0 0 2px var(--accent); }
   .day-cell.past-start { opacity: 0.4; pointer-events: none; }
   .day-number {
-    font-size: 11px;
+    font-size: 13px;
     font-weight: 500;
     color: var(--text-muted);
-    margin-bottom: 4px;
+    margin-bottom: 5px;
   }
   .day-cell.today .day-number {
     background: var(--accent);
     color: white;
-    width: 20px;
-    height: 20px;
+    width: 24px;
+    height: 24px;
     border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 10px;
+    font-size: 12px;
   }
   .day-balance {
-    font-size: 10px;
+    font-size: 12px;
     font-weight: 500;
     color: var(--accent);
-    margin-bottom: 3px;
+    margin-bottom: 5px;
   }
   .day-balance.negative { color: var(--red); }
   .day-transactions { flex: 1; display: flex; flex-direction: column; gap: 2px; }
   .txn-pill {
-    font-size: 9px;
-    padding: 2px 4px;
+    font-size: 11px;
+    padding: 3px 6px;
     border-radius: 3px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
     display: flex;
     justify-content: space-between;
-    gap: 2px;
+    gap: 4px;
   }
   .txn-pill.pending {
     background: var(--pending-bg);
@@ -250,19 +250,19 @@
   }
   .txn-pill.income { background: var(--green-light); color: var(--green); }
   .day-more {
-    font-size: 9px;
+    font-size: 11px;
     color: var(--text-light);
     text-align: right;
-    margin-top: 2px;
+    margin-top: 3px;
   }
   .day-totals {
     display: flex;
     gap: 4px;
-    margin-top: 3px;
+    margin-top: 4px;
   }
   .day-total-chip {
-    font-size: 8px;
-    padding: 1px 4px;
+    font-size: 10px;
+    padding: 2px 5px;
     border-radius: 2px;
   }
   .day-total-chip.out { background: var(--red-light); color: var(--red); }
@@ -673,8 +673,9 @@
 
   @media (max-width: 600px) {
     .calendar-grid { gap: 1px; }
-    .day-cell { min-height: 70px; padding: 4px; }
-    .day-number { font-size: 10px; }
+    .day-cell { min-height: 90px; padding: 5px; }
+    .day-number { font-size: 11px; }
+    .txn-pill { font-size: 9px; padding: 2px 4px; }
     .form-row { grid-template-columns: 1fr; }
     .balance-bar { gap: 12px; }
   }
@@ -1269,8 +1270,8 @@ function renderCalendar() {
     if (isToday) cls += ' today';
 
     let txnHtml = '';
-    const visible = allDay.slice(0, 3);
-    const more = allDay.length - 3;
+    const visible = allDay.slice(0, 4);
+    const more = allDay.length - 4;
     
     for (const t of visible) {
       const pillCls = t.amount > 0 ? 'income' : (t.status === 'completed' ? 'completed' : (t.isVirtualBill || t.status === 'expected' ? 'expected' : 'pending'));
