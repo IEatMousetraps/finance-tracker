@@ -638,6 +638,21 @@
     letter-spacing: 0.05em;
   }
 
+  .today-btn {
+    background: var(--accent-light);
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    padding: 4px 14px;
+    border-radius: 20px;
+    cursor: pointer;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    transition: all 0.2s;
+  }
+  .today-btn:hover { background: var(--accent); color: white; }
+
   @media (max-width: 600px) {
     .calendar-grid { gap: 1px; }
     .day-cell { min-height: 70px; padding: 4px; }
@@ -724,7 +739,10 @@
   <main>
     <div class="month-nav">
       <button class="month-nav-btn" id="btn-prev-month">←</button>
-      <h2 id="month-title">Loading...</h2>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:6px;">
+        <h2 id="month-title">Loading...</h2>
+        <button class="today-btn" id="btn-today">Today</button>
+      </div>
       <button class="month-nav-btn" id="btn-next-month">→</button>
     </div>
     <div class="calendar-grid" id="calendar-grid">
@@ -1002,21 +1020,10 @@ async function saveOpeningBalance() {
 
 // ── TRANSACTIONS ──────────────────────────────────────────────────────────────
 async function loadTransactions() {
-  // Load a 3-month window centered on current month
+  // Load ALL transactions across all time for correct running balance
   allTransactions = [];
-  const months = [-1, 0, 1];
-  for (const offset of months) {
-    let m = currentMonth + offset;
-    let y = currentYear;
-    if (m < 0) { m += 12; y--; }
-    if (m > 11) { m -= 12; y++; }
-    const snap = await getDocs(query(
-      collection(db, 'transactions'),
-      where('year', '==', y),
-      where('month', '==', m)
-    ));
-    snap.forEach(d => allTransactions.push({ id: d.id, ...d.data() }));
-  }
+  const snap = await getDocs(collection(db, 'transactions'));
+  snap.forEach(d => allTransactions.push({ id: d.id, ...d.data() }));
 }
 
 function getTxnsForDate(year, month, day) {
@@ -1114,7 +1121,7 @@ function renderCalendar() {
     
     const hasActivity = allDay.length > 0;
     const balClass = balance < 0 ? 'negative' : '';
-    const fmtBal = hasActivity || d === 1 ? `$${balance.toFixed(0)}` : '';
+    const fmtBal = `$${balance.toFixed(0)}`;
     
     let cls = 'day-cell';
     if (isPastStart) cls += ' past-start';
@@ -1180,7 +1187,6 @@ function updateBalanceBar() {
   document.getElementById('bal-pending').textContent = `$${pending.toFixed(2)}`;
 }
 
-// ── NAVIGATION ────────────────────────────────────────────────────────────────
 async function changeMonth(dir) {
   currentMonth += dir;
   if (currentMonth < 0) { currentMonth = 11; currentYear--; }
@@ -1188,7 +1194,13 @@ async function changeMonth(dir) {
   if (currentYear < 2025 || (currentYear === 2025 && currentMonth < 3)) {
     currentYear = 2025; currentMonth = 3;
   }
-  await loadTransactions();
+  renderCalendar();
+}
+
+function goToToday() {
+  const now = new Date();
+  currentYear = now.getFullYear();
+  currentMonth = now.getMonth();
   renderCalendar();
 }
 
@@ -1669,6 +1681,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Month nav
   document.getElementById('btn-prev-month').addEventListener('click', () => changeMonth(-1));
   document.getElementById('btn-next-month').addEventListener('click', () => changeMonth(1));
+  document.getElementById('btn-today').addEventListener('click', () => goToToday());
 
   // FAB
   document.getElementById('fab').addEventListener('click', () => openAddTransaction());
