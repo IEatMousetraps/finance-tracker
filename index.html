@@ -1427,6 +1427,7 @@ function renderDayDetail(day) {
         <div class="txn-actions">
           ${isVirtual ? `
             <button class="txn-btn confirm" onclick="confirmBill('${t.billRef.id}', ${day})">✓ Paid</button>
+            <button class="txn-btn" style="background:var(--pending-bg);color:var(--pending-text);" onclick="pendingBill('${t.billRef.id}', ${day})">Pending</button>
             <button class="txn-btn edit" onclick="moveBill('${t.billRef.id}', ${day})">Move</button>
           ` : `
             <button class="txn-btn edit" onclick="editTxn('${t.id}')">Edit</button>
@@ -1448,6 +1449,26 @@ async function confirmBill(billId, day) {
     amount: -Math.abs(bill.amount),
     category: bill.category,
     status: 'completed',
+    year: currentYear,
+    month: currentMonth,
+    day: day,
+    recurringBillId: billId,
+    createdAt: new Date().toISOString()
+  });
+  await loadTransactions();
+  renderDayDetail(day);
+  renderCalendar();
+}
+
+// ── PENDING BILL (virtual → real pending) ─────────────────────────────────────
+async function pendingBill(billId, day) {
+  const bill = recurringBills.find(b => b.id === billId);
+  if (!bill) return;
+  await addDoc(collection(db, 'transactions'), {
+    description: bill.name,
+    amount: -Math.abs(bill.amount),
+    category: bill.category,
+    status: 'pending',
     year: currentYear,
     month: currentMonth,
     day: day,
@@ -1949,6 +1970,7 @@ document.addEventListener('DOMContentLoaded', () => {
   window.editTxn = editTxn;
   window.confirmDeleteTxn = confirmDeleteTxn;
   window.confirmBill = confirmBill;
+  window.pendingBill = pendingBill;
   window.moveTxn = moveTxn;
   window.moveBill = moveBill;
   window.editBill = editBill;
