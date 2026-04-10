@@ -649,6 +649,41 @@
 </head>
 <body>
 
+<!-- LOGIN SCREEN -->
+<div id="login-screen" style="
+  position:fixed;inset:0;background:#1a1714;z-index:1000;
+  display:flex;align-items:center;justify-content:center;
+  flex-direction:column;padding:24px;
+">
+  <div style="width:100%;max-width:380px;">
+    <h1 style="font-family:'Fraunces',serif;font-weight:300;font-size:32px;color:#f7f4ef;text-align:center;margin-bottom:4px;">
+      finance <em style="color:#a8c9b0;">calendar</em>
+    </h1>
+    <p style="text-align:center;color:#7a736a;font-family:'DM Mono',monospace;font-size:12px;margin-bottom:40px;letter-spacing:0.05em;">sign in to continue</p>
+
+    <div style="margin-bottom:16px;">
+      <label style="display:block;font-family:'DM Mono',monospace;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:#7a736a;margin-bottom:6px;">Email</label>
+      <input id="login-email" type="email" inputmode="email" autocomplete="email" placeholder="you@example.com" style="
+        width:100%;padding:14px;border:1px solid #3d3833;border-radius:8px;
+        background:#2a2520;color:#f7f4ef;font-family:'DM Mono',monospace;font-size:14px;outline:none;
+      ">
+    </div>
+    <div style="margin-bottom:8px;">
+      <label style="display:block;font-family:'DM Mono',monospace;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:#7a736a;margin-bottom:6px;">Password</label>
+      <input id="login-password" type="password" autocomplete="current-password" placeholder="••••••••" style="
+        width:100%;padding:14px;border:1px solid #3d3833;border-radius:8px;
+        background:#2a2520;color:#f7f4ef;font-family:'DM Mono',monospace;font-size:14px;outline:none;
+      ">
+    </div>
+    <p id="login-error" style="color:#f0907e;font-family:'DM Mono',monospace;font-size:11px;min-height:20px;margin-bottom:8px;"></p>
+    <button id="btn-login" style="
+      width:100%;padding:14px;background:#2d5a3d;border:none;border-radius:8px;
+      color:white;font-family:'DM Mono',monospace;font-size:13px;letter-spacing:0.08em;
+      text-transform:uppercase;cursor:pointer;
+    ">Sign In</button>
+  </div>
+</div>
+
 <nav>
   <h1>finance <em>calendar</em></h1>
   <div class="nav-right">
@@ -731,6 +766,30 @@
         <div class="empty-state"><div class="icon">📋</div>No recurring bills added</div>
       </div>
       <button class="btn btn-secondary" id="btn-add-bill">+ Add Recurring Bill</button>
+    </div>
+
+    <div class="settings-section">
+      <h3>Change Password</h3>
+      <div class="form-group">
+        <label>Current Password</label>
+        <input type="password" id="pw-current" placeholder="••••••••" autocomplete="current-password">
+      </div>
+      <div class="form-group">
+        <label>New Password</label>
+        <input type="password" id="pw-new" placeholder="••••••••" autocomplete="new-password">
+      </div>
+      <div class="form-group">
+        <label>Confirm New Password</label>
+        <input type="password" id="pw-confirm" placeholder="••••••••" autocomplete="new-password">
+      </div>
+      <p id="pw-msg" style="font-size:11px;min-height:18px;margin-bottom:6px;"></p>
+      <button class="btn btn-primary" id="btn-change-pw">Update Password</button>
+    </div>
+
+    <div class="settings-section">
+      <h3>Account</h3>
+      <p style="font-size:12px;color:var(--text-muted);margin-bottom:14px;" id="login-email-display"></p>
+      <button class="btn btn-secondary" id="btn-sign-out">Sign Out</button>
     </div>
   </main>
 </div>
@@ -870,6 +929,7 @@
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import { getFirestore, doc, getDoc, setDoc, collection, query, where, getDocs, addDoc, updateDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, updatePassword, EmailAuthProvider, reauthenticateWithCredential } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 
 // ── FIREBASE CONFIG ──────────────────────────────────────────────────────────
 const firebaseConfig = {
@@ -883,6 +943,7 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
+const auth = getAuth(app);
 
 // ── STATE ────────────────────────────────────────────────────────────────────
 const START_DATE = new Date(2025, 3, 10); // April 10, 2025 (month is 0-indexed)
@@ -1529,6 +1590,62 @@ function ordinal(n) {
   return s[(v-20)%10] || s[v] || s[0];
 }
 
+// ── AUTH ──────────────────────────────────────────────────────────────────────
+function showApp() {
+  document.getElementById('login-screen').style.display = 'none';
+}
+
+function showLogin() {
+  document.getElementById('login-screen').style.display = 'flex';
+}
+
+async function doLogin() {
+  const email = document.getElementById('login-email').value.trim();
+  const password = document.getElementById('login-password').value;
+  const errEl = document.getElementById('login-error');
+  errEl.textContent = '';
+  const btn = document.getElementById('btn-login');
+  btn.textContent = 'Signing in...';
+  btn.disabled = true;
+  try {
+    await signInWithEmailAndPassword(auth, email, password);
+  } catch(e) {
+    errEl.textContent = 'Incorrect email or password.';
+    btn.textContent = 'Sign In';
+    btn.disabled = false;
+  }
+}
+
+async function doSignOut() {
+  await signOut(auth);
+}
+
+async function doChangePassword() {
+  const current = document.getElementById('pw-current').value;
+  const newPw = document.getElementById('pw-new').value;
+  const confirm = document.getElementById('pw-confirm').value;
+  const msg = document.getElementById('pw-msg');
+
+  if (!current || !newPw || !confirm) { msg.style.color = '#c0392b'; msg.textContent = 'Please fill in all fields.'; return; }
+  if (newPw !== confirm) { msg.style.color = '#c0392b'; msg.textContent = 'New passwords do not match.'; return; }
+  if (newPw.length < 6) { msg.style.color = '#c0392b'; msg.textContent = 'Password must be at least 6 characters.'; return; }
+
+  try {
+    const user = auth.currentUser;
+    const cred = EmailAuthProvider.credential(user.email, current);
+    await reauthenticateWithCredential(user, cred);
+    await updatePassword(user, newPw);
+    msg.style.color = '#2d5a3d';
+    msg.textContent = 'Password updated successfully!';
+    document.getElementById('pw-current').value = '';
+    document.getElementById('pw-new').value = '';
+    document.getElementById('pw-confirm').value = '';
+  } catch(e) {
+    msg.style.color = '#c0392b';
+    msg.textContent = e.code === 'auth/wrong-password' ? 'Current password is incorrect.' : 'Error updating password. Try again.';
+  }
+}
+
 // ── EVENT LISTENERS ───────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   // Expose functions called from dynamically generated HTML
@@ -1539,6 +1656,10 @@ document.addEventListener('DOMContentLoaded', () => {
   window.editBill = editBill;
   window.quickDeleteBill = quickDeleteBill;
   window.editCard = editCard;
+
+  // Login
+  document.getElementById('btn-login').addEventListener('click', doLogin);
+  document.getElementById('login-password').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
 
   // Nav
   document.getElementById('nav-calendar').addEventListener('click', () => switchView('calendar'));
@@ -1579,6 +1700,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Settings
   document.getElementById('btn-save-balance').addEventListener('click', () => saveOpeningBalance());
+  document.getElementById('btn-change-pw').addEventListener('click', () => doChangePassword());
+  document.getElementById('btn-sign-out').addEventListener('click', () => doSignOut());
 
   // Close modals on overlay tap
   document.querySelectorAll('.modal-overlay').forEach(overlay => {
@@ -1587,8 +1710,16 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // Kick off data load
-  init();
+  // Auth state — this is the gatekeeper
+  onAuthStateChanged(auth, (user) => {
+    if (user) {
+      showApp();
+      document.getElementById('login-email-display').textContent = `Signed in as ${user.email}`;
+      init();
+    } else {
+      showLogin();
+    }
+  });
 });
 </script>
 </body>
