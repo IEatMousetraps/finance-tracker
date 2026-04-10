@@ -1322,19 +1322,19 @@ function renderCalendar() {
     for (const t of visible) {
       const pillCls = t.amount > 0 ? 'income' : (t.status === 'completed' ? 'completed' : (t.isVirtualBill || t.status === 'expected' ? 'expected' : 'pending'));
       const sign = t.amount > 0 ? '+' : '';
-      const amt = `${sign}$${Math.abs(t.amount).toFixed(0)}`;
+      const amt = `${sign}$${Math.abs(t.amount).toFixed(2)}`;
       txnHtml += `<div class="txn-pill ${pillCls}""><span>${t.description}</span><span>${amt}</span></div>`;
     }
     if (more > 0) txnHtml += `<div class="day-more">+${more} more</div>`;
 
     let totalsHtml = '';
-    if (dayOut < 0) totalsHtml += `<span class="day-total-chip out">-$${Math.abs(dayOut).toFixed(0)}</span>`;
-    if (dayIn > 0) totalsHtml += `<span class="day-total-chip in">+$${dayIn.toFixed(0)}</span>`;
+    if (dayOut < 0) totalsHtml += `<span class="day-total-chip out">-$${Math.abs(dayOut).toFixed(2)}</span>`;
+    if (dayIn > 0) totalsHtml += `<span class="day-total-chip in">+$${dayIn.toFixed(2)}</span>`;
 
     html += `
       <div class="${cls}" onclick="openDay(${d})">
         <div class="day-number">${isToday ? `<span style="background:var(--accent);color:white;width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;">${d}</span>` : d}</div>
-        <div class="day-balance ${balClass}" style="${isProjected ? 'opacity:0.7;font-style:italic;' : ''}">$${displayBal.toFixed(0)}</div>
+        <div class="day-balance ${balClass}" style="${isProjected ? 'opacity:0.7;font-style:italic;' : ''}">$${displayBal.toFixed(2)}</div>
         <div class="day-transactions">${txnHtml}</div>
         ${totalsHtml ? `<div class="day-totals">${totalsHtml}</div>` : ''}
       </div>`;
