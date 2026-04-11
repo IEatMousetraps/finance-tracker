@@ -765,12 +765,77 @@
   .report-txn-amt.income { color: var(--green); }
 
   @media (max-width: 600px) {
+    /* NAV — hide title, compress buttons */
+    nav h1 { display: none; }
+    nav { padding: 0 8px; justify-content: center; height: auto; flex-wrap: wrap; }
+    .nav-right {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 4px;
+      width: 100%;
+      padding: 6px 0;
+    }
+    .nav-btn {
+      padding: 7px 4px;
+      font-size: 9px;
+      letter-spacing: 0.03em;
+      text-align: center;
+      border-radius: 6px;
+    }
+
+    /* BALANCE BAR — 2x2 grid */
+    .balance-bar {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0;
+      padding: 0;
+      align-items: stretch;
+    }
+    .balance-bar .divider { display: none; }
+    .balance-item {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 1px;
+      padding: 10px 12px;
+      border-right: 1px solid rgba(255,255,255,0.15);
+      border-bottom: 1px solid rgba(255,255,255,0.15);
+    }
+    .balance-bar .label { font-size: 9px; opacity: 0.6; }
+    .balance-bar .amount { font-size: 16px; margin-left: 0; }
+
+    /* CALENDAR — reduce padding, smaller text */
+    main { padding: 8px; }
+    .month-nav { margin-bottom: 10px; }
+    .month-nav h2 { font-size: 20px; }
+    .month-nav-btn { padding: 6px 10px; font-size: 14px; }
+    .today-btn { font-size: 9px; padding: 3px 10px; }
     .calendar-grid { gap: 1px; }
-    .day-cell { min-height: 90px; padding: 5px; }
-    .day-number { font-size: 11px; }
-    .txn-pill { font-size: 9px; padding: 2px 4px; }
+    .day-header { padding: 6px 2px; font-size: 9px; }
+    .day-cell { min-height: 80px; padding: 4px; }
+    .day-number { font-size: 11px; margin-bottom: 3px; }
+    .day-cell.today .day-number { width: 18px; height: 18px; font-size: 9px; }
+    .day-balance { font-size: 10px; margin-bottom: 2px; }
+    .txn-pill { font-size: 8px; padding: 2px 3px; }
+    .day-more { font-size: 8px; }
+    .day-total-chip { font-size: 8px; padding: 1px 3px; }
+
+    /* FORMS */
     .form-row { grid-template-columns: 1fr; }
-    .balance-bar { gap: 12px; }
+    .modal { border-radius: 12px 12px 0 0; }
+    .settings-section { padding: 14px; }
+
+    /* FAB — slightly smaller */
+    .fab { width: 50px; height: 50px; font-size: 24px; bottom: 16px; right: 14px; }
+
+    /* REPORTS */
+    .report-summary-card .rsc-value { font-size: 18px; }
+    .cat-report-name { min-width: 90px; font-size: 11px; }
+
+    /* CC balance bar same grid treatment */
+    #cc-balance-bar {
+      display: grid !important;
+      grid-template-columns: 1fr 1fr;
+    }
   }
 </style>
 </head>
@@ -815,11 +880,11 @@
   <h1>finance <em>calendar</em></h1>
   <div class="nav-right">
     <button class="nav-btn active" id="nav-calendar">Calendar</button>
-    <button class="nav-btn" id="nav-cc-calendar">CC Calendar</button>
+    <button class="nav-btn" id="nav-cc-calendar">CC Cal</button>
     <button class="nav-btn" id="nav-reports">Reports</button>
     <button class="nav-btn" id="nav-cards">Cards</button>
     <button class="nav-btn" id="nav-loans">Loans</button>
-    <button class="nav-btn" id="nav-settings">⚙️</button>
+    <button class="nav-btn" id="nav-settings">⚙️ Settings</button>
   </div>
 </nav>
 
