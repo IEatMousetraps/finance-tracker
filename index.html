@@ -987,7 +987,7 @@
           <div style="font-size:13px;font-weight:500;">AI Financial Briefing</div>
           <div style="font-size:10px;color:var(--text-muted);">Personalized read on your spending trends</div>
         </div>
-        <button class="btn btn-primary" id="btn-get-ai-insights" style="width:auto;padding:8px 14px;font-size:11px;margin:0;">Ask Claude</button>
+        <button class="btn btn-primary" id="btn-get-ai-insights" style="width:auto;padding:8px 14px;font-size:11px;margin:0;">Open in Claude ↗</button>
       </div>
       <div id="insights-ai" style="font-size:13px;line-height:1.7;color:var(--text);"></div>
     </div>
@@ -2395,8 +2395,13 @@ function openInsights() {
     }
   });
 
-  // Category-level week over week
-  const allCats = new Set([...Object.keys(thisCats), ...Object.keys(lastCats)]);
+  // Category-level week over week — ONLY tracked spending categories
+  const TRACKED_CATS = new Set(['groceries','food','coffee','gas','shopping','entertainment','personal','household','pets']);
+
+  const allCats = new Set([
+    ...Object.keys(thisCats).filter(c => TRACKED_CATS.has(c)),
+    ...Object.keys(lastCats).filter(c => TRACKED_CATS.has(c))
+  ]);
   allCats.forEach(cat => {
     const thisAmt = thisCats[cat] || 0;
     const lastAmt = lastCats[cat] || 0;
@@ -2404,7 +2409,7 @@ function openInsights() {
     const label = CAT_LABELS_INS[cat] || cat;
     const emoji = CAT_EMOJI[cat] || '📌';
 
-    if (lastAmt === 0 && thisAmt > 50) {
+    if (lastAmt === 0 && thisAmt > 20) {
       cards.push({ type: 'info', icon: emoji,
         title: `${label} — new spending this week`,
         detail: `$${thisAmt.toFixed(2)} charged, nothing last week.`
@@ -2428,9 +2433,8 @@ function openInsights() {
     }
   });
 
-  // Impulse check — high transaction count in flagged cats
-  const flaggedCats = ['shopping','entertainment','food','coffee'];
-  flaggedCats.forEach(cat => {
+  // Impulse check — high transaction count in discretionary cats
+  ['shopping','food','coffee','entertainment'].forEach(cat => {
     const count = thisTxns.filter(t => t.category === cat && t.amount < 0).length;
     const lastCount = lastTxns.filter(t => t.category === cat && t.amount < 0).length;
     if (count >= 4) {
@@ -2440,6 +2444,14 @@ function openInsights() {
       });
     }
   });
+
+  // Grocery-specific: flag if no grocery spending (maybe using CC instead)
+  if (!thisCats['groceries'] && !thisCats['food']) {
+    cards.push({ type: 'info', icon: '🛒',
+      title: 'No groceries or dining logged this week',
+      detail: 'If you paid by credit card, make sure to log it on the CC Calendar for accurate spending reports.'
+    });
+  }
 
   if (cards.length === 0) {
     cards.push({ type: 'good', icon: '✅',
@@ -2465,64 +2477,64 @@ function openInsights() {
 async function getAIInsights() {
   const btn = document.getElementById('btn-get-ai-insights');
   const output = document.getElementById('insights-ai');
-  btn.disabled = true;
-  btn.textContent = 'Thinking...';
-  output.innerHTML = '<div style="color:var(--text-muted);font-size:12px;padding:8px 0;">Analyzing your spending patterns...</div>';
 
   // Build anonymized spending summary — NO descriptions, just category totals
+  const TRACKED_CATS_AI = ['groceries','food','coffee','gas','shopping','entertainment','personal','household','pets'];
+
   const weeks = [0,1,2,3].map(w => {
     const { start, end } = getWeekBounds(w);
     const txns = getTxnsInRange(start, end);
     const cats = spendingByCategory(txns);
-    const income = txns.filter(t=>t.amount>0).reduce((s,t)=>s+t.amount,0);
     const fmt = d => `${d.toLocaleString('default',{month:'short'})} ${d.getDate()}`;
-    return { label: w === 0 ? 'This week' : w === 1 ? 'Last week' : `${w} weeks ago`,
-             range: `${fmt(start)}–${fmt(end)}`, cats, income,
-             total: Object.values(cats).reduce((s,v)=>s+v,0) };
+    const filteredCats = Object.fromEntries(
+      Object.entries(cats).filter(([k]) => TRACKED_CATS_AI.includes(k))
+    );
+    return {
+      label: w === 0 ? 'This week' : w === 1 ? 'Last week' : `${w} weeks ago`,
+      range: `${fmt(start)}–${fmt(end)}`,
+      cats: filteredCats,
+      total: Object.values(filteredCats).reduce((s,v)=>s+v,0)
+    };
   });
 
-  const budgetSummary = Object.entries(budgets).map(([cat, goal]) => {
-    const now = new Date();
-    const spent = allTransactions.filter(t =>
-      t.year===now.getFullYear() && t.month===now.getMonth() &&
-      t.status==='completed' && t.category===cat && t.amount<0
-    ).reduce((s,t)=>s+Math.abs(t.amount),0);
-    return `${CAT_LABELS_INS[cat]||cat}: $${spent.toFixed(0)} spent of $${goal} budget`;
-  }).join(', ');
+  const budgetSummary = Object.entries(budgets)
+    .filter(([cat]) => TRACKED_CATS_AI.includes(cat))
+    .map(([cat, goal]) => {
+      const now = new Date();
+      const spent = allTransactions.filter(t =>
+        t.year===now.getFullYear() && t.month===now.getMonth() &&
+        t.status==='completed' && t.category===cat && t.amount<0
+      ).reduce((s,t)=>s+Math.abs(t.amount),0);
+      return `${CAT_LABELS_INS[cat]||cat}: $${spent.toFixed(0)} of $${goal} budget`;
+    }).join(', ');
 
   const weekSummary = weeks.map(w => {
     const catLines = Object.entries(w.cats)
       .sort((a,b)=>b[1]-a[1])
       .map(([cat,amt]) => `  ${CAT_LABELS_INS[cat]||cat}: $${amt.toFixed(2)}`)
       .join('\n');
-    return `${w.label} (${w.range}) — Total spent: $${w.total.toFixed(2)}, Income received: $${w.income.toFixed(2)}\n${catLines||'  No spending'}`;
+    return `${w.label} (${w.range}) — Total: $${w.total.toFixed(2)}\n${catLines||'  No spending'}`;
   }).join('\n\n');
 
-  const prompt = `You are a friendly, direct personal finance coach. A user has shared their anonymized weekly spending data (category totals only, no merchant names). Give them a brief, practical 3-4 paragraph briefing on their spending trends. Be specific about the numbers. Flag anything concerning. Praise genuine improvements. End with 1-2 concrete action items for the coming week. Do not use bullet points — write in natural paragraphs. Keep it under 200 words.
+  const prompt = `You are a friendly, direct personal finance coach. I'm sharing my anonymized weekly spending data (category totals only, no merchant names). Give me a brief, practical 3-4 paragraph briefing on my spending trends across groceries, gas, dining out, and shopping. Be specific about the numbers. Flag anything concerning. Praise genuine improvements. End with 1-2 concrete action items for the coming week. Write in natural paragraphs, no bullet points, under 200 words.
 
-${budgetSummary ? `Monthly budget goals: ${budgetSummary}\n\n` : ''}Spending data:\n${weekSummary}`;
+${budgetSummary ? `My monthly budget goals: ${budgetSummary}\n\n` : ''}My spending data:\n${weekSummary}`;
 
+  // Copy prompt to clipboard and open Claude.ai
   try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 1000,
-        messages: [{ role: 'user', content: prompt }]
-      })
-    });
-    const data = await response.json();
-    const text = data.content?.[0]?.text || 'Unable to generate insights.';
-    output.innerHTML = text.split('\n\n').map(p =>
-      p.trim() ? `<p style="margin-bottom:12px;">${p.trim()}</p>` : ''
-    ).join('');
+    await navigator.clipboard.writeText(prompt);
+    output.innerHTML = `
+      <div style="background:var(--surface2);border-radius:var(--radius);padding:14px;font-size:12px;line-height:1.6;">
+        <div style="font-weight:600;margin-bottom:6px;">✅ Prompt copied to clipboard!</div>
+        <div style="color:var(--text-muted);">Your spending summary has been copied. Claude.ai is opening in a new tab — just paste it in the chat to get your briefing.</div>
+      </div>`;
+    window.open('https://claude.ai', '_blank');
   } catch(e) {
-    output.innerHTML = '<div style="color:var(--red);font-size:12px;">Could not connect. Check your internet connection and try again.</div>';
+    // Fallback — show the prompt in a textarea to copy manually
+    output.innerHTML = `
+      <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;">Copy this and paste it into <a href="https://claude.ai" target="_blank" style="color:var(--accent);">claude.ai</a>:</div>
+      <textarea readonly style="width:100%;height:140px;font-size:10px;font-family:var(--mono);padding:8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface2);resize:none;">${prompt}</textarea>`;
   }
-
-  btn.disabled = false;
-  btn.textContent = 'Ask Claude';
 }
 
 // ── REPORTS ───────────────────────────────────────────────────────────────────
