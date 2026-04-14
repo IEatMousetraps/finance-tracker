@@ -2993,9 +2993,10 @@ function renderDayDetail(day) {
             <button class="txn-btn edit" onclick="moveBill('${t.billRef.id}', ${day})">Move</button>
             <button class="txn-btn delete" onclick="skipBill('${t.billRef.id}', ${day})">Skip</button>
           ` : `
+            ${(t.status === 'pending' || t.status === 'expected') ? `<button class="txn-btn confirm" onclick="quickCompleteTxn('${t.id}', ${day})">✓</button>` : ''}
             <button class="txn-btn edit" onclick="editTxn('${t.id}')">Edit</button>
             <button class="txn-btn edit" onclick="moveTxn('${t.id}')">Move</button>
-            <button class="txn-btn delete" onclick="confirmDeleteTxn('${t.id}')">✕</button>
+            <button class="txn-btn delete" onclick="quickDeleteTxn('${t.id}', ${day})">✕</button>
           `}
         </div>
       </div>`;
@@ -3277,7 +3278,23 @@ async function saveTxn() {
   }
 }
 
+async function quickCompleteTxn(id, day) {
+  await updateDoc(doc(db, 'transactions', id), { status: 'completed' });
+  await loadTransactions();
+  renderDayDetail(day);
+  renderCalendar();
+}
+
+async function quickDeleteTxn(id, day) {
+  if (!confirm('Delete this transaction?')) return;
+  await deleteDoc(doc(db, 'transactions', id));
+  await loadTransactions();
+  renderDayDetail(day);
+  renderCalendar();
+}
+
 function confirmDeleteTxn(id) {
+  // kept for backward compat — now just calls quickDeleteTxn with no day refresh
   editingTxnId = id;
   closeModal('day-modal');
   document.getElementById('txn-modal-title').textContent = 'Delete Transaction?';
@@ -3287,6 +3304,7 @@ function confirmDeleteTxn(id) {
 
 async function deleteTxn() {
   if (!editingTxnId) return;
+  if (!confirm('Are you sure you want to delete this transaction?')) return;
   await deleteDoc(doc(db, 'transactions', editingTxnId));
   editingTxnId = null;
   closeModal('txn-modal');
@@ -3847,6 +3865,8 @@ document.addEventListener('DOMContentLoaded', () => {
   window.openDay = openDay;
   window.editTxn = editTxn;
   window.confirmDeleteTxn = confirmDeleteTxn;
+  window.quickCompleteTxn = quickCompleteTxn;
+  window.quickDeleteTxn = quickDeleteTxn;
   window.openLogBill = openLogBill;
   window.moveTxn = moveTxn;
   window.moveBill = moveBill;
