@@ -980,6 +980,9 @@
     <!-- Rule-based alerts -->
     <div id="insights-rules" style="margin-bottom:20px;"></div>
 
+    <!-- Debt paydown section -->
+    <div id="insights-debt" style="margin-bottom:20px;"></div>
+
     <!-- AI briefing section -->
     <div style="border-top:1px solid var(--border);padding-top:16px;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
@@ -2311,7 +2314,8 @@ function getWeekBounds(weeksAgo) {
 
 function getTxnsInRange(start, end) {
   return allTransactions.filter(t => {
-    if (t.status !== 'completed') return false;
+    // Include completed, pending, and expected — exclude skipped and transfers
+    if (t.status === 'skipped') return false;
     if (t.category === 'transfer') return false;
     const d = new Date(t.year, t.month, t.day);
     return d >= start && d <= end;
@@ -2470,6 +2474,148 @@ function openInsights() {
     </div>
   `).join('');
 
+  // ── DEBT PAYDOWN SECTION ──────────────────────────────────────────────────
+  const debtCards = [];
+  const totalCCDebt = creditCards.reduce((s,c) => s + (c.balance||0), 0);
+  const totalLoanDebt = loans.reduce((s,l) => s + (l.balance||0), 0);
+  const totalDebt = totalCCDebt + totalLoanDebt;
+
+  if (totalDebt > 0) {
+    // What bills are coming up in the next 14 days
+    const today2 = new Date();
+    const upcoming = [];
+    for (let d = 0; d <= 14; d++) {
+      const checkDate = new Date(today2);
+      checkDate.setDate(today2.getDate() + d);
+      const vBills = getBillsForDate(checkDate.getFullYear(), checkDate.getMonth(), checkDate.getDate());
+      vBills.forEach(b => {
+        if (b.amount < 0) upcoming.push({ ...b, dueDate: checkDate, daysOut: d });
+      });
+    }
+    const upcomingTotal = upcoming.reduce((s,b) => s + Math.abs(b.amount), 0);
+    const currentBal = calcRunningBalance(today2.getFullYear(), today2.getMonth(), today2.getDate());
+    const availableAfterBills = currentBal - upcomingTotal;
+
+    // This week's discretionary spending — the real-world examples
+    const DISCRETIONARY = ['shopping','food','coffee','entertainment','personal','sports','travel','charity'];
+    const discTxns = thisTxns.filter(t => DISCRETIONARY.includes(t.category) && t.amount < 0);
+    const discTotal = discTxns.reduce((s,t) => s + Math.abs(t.amount), 0);
+
+    // Top discretionary examples (up to 3 real transactions)
+    const topDisc = [...discTxns].sort((a,b) => Math.abs(b.amount) - Math.abs(a.amount)).slice(0,3);
+
+    // How much extra could go to debt
+    const suggestedExtra = Math.max(0, Math.min(discTotal * 0.5, availableAfterBills * 0.2));
+
+    // Overview card
+    const debtBreakdown = [
+      totalCCDebt > 0 ? `Credit cards: $${totalCCDebt.toFixed(2)}` : '',
+      totalLoanDebt > 0 ? `Loans: $${totalLoanDebt.toFixed(2)}` : ''
+    ].filter(Boolean).join(' · ');
+
+    debtCards.push({ type: 'info', icon: '💳',
+      title: `Total debt: $${totalDebt.toFixed(2)}`,
+      detail: debtBreakdown
+    });
+
+    // Upcoming bills vs available balance
+    if (upcomingTotal > 0) {
+      const type = availableAfterBills < 200 ? 'alert' : availableAfterBills < 500 ? 'warn' : 'info';
+      debtCards.push({ type, icon: '📅',
+        title: `$${upcomingTotal.toFixed(2)} in bills due next 14 days`,
+        detail: `Current balance: $${currentBal.toFixed(2)} · After bills: $${availableAfterBills.toFixed(2)}`
+      });
+    }
+
+    // Real spending examples and their debt impact
+    if (discTotal > 0 && topDisc.length > 0) {
+      const examples = topDisc.map(t => `$${Math.abs(t.amount).toFixed(2)} on ${t.description}`).join(', ');
+
+      // Pick the highest-interest CC or smallest balance loan for targeting
+      let target = null;
+      let targetType = '';
+      const highIntCC = [...creditCards].filter(c=>c.balance>0).sort((a,b)=>(b.rate||0)-(a.rate||0))[0];
+      const smallestLoan = [...loans].filter(l=>l.balance>0).sort((a,b)=>a.balance-b.balance)[0];
+
+      if (highIntCC && (!smallestLoan || (highIntCC.rate||0) > 10)) {
+        target = highIntCC;
+        targetType = `${highIntCC.name} (${highIntCC.rate||'?'}% APR)`;
+      } else if (smallestLoan) {
+        target = smallestLoan;
+        targetType = smallestLoan.name;
+      }
+
+      if (target) {
+        // Interest cost this week on the debt
+        const weeklyInterest = target.rate
+          ? ((target.balance * (target.rate / 100)) / 52).toFixed(2)
+          : null;
+
+        const interestNote = weeklyInterest
+          ? ` Meanwhile, ${targetType} is costing you ~$${weeklyInterest}/week in interest.`
+          : '';
+
+        debtCards.push({ type: 'warn', icon: '⚡',
+          title: `$${discTotal.toFixed(2)} in discretionary spending this week`,
+          detail: `${examples}.${interestNote} Even putting $${suggestedExtra > 0 ? suggestedExtra.toFixed(0) : '20'} extra toward ${targetType} each week accelerates payoff.`
+        });
+      } else {
+        debtCards.push({ type: 'warn', icon: '⚡',
+          title: `$${discTotal.toFixed(2)} in discretionary spending this week`,
+          detail: `${examples}. Redirecting even half of that toward debt paydown adds up fast.`
+        });
+      }
+    }
+
+    // Specific paydown suggestion with math
+    if (suggestedExtra >= 10) {
+      const highIntCC = [...creditCards].filter(c=>c.balance>0&&c.rate>0).sort((a,b)=>b.rate-a.rate)[0];
+      if (highIntCC) {
+        const monthlyRate = (highIntCC.rate / 100) / 12;
+        const currentMinPayment = highIntCC.payment || (highIntCC.balance * 0.02);
+        const withExtra = currentMinPayment + (suggestedExtra * 4); // monthly equivalent
+        const currentMonths = currentMinPayment > 0
+          ? Math.ceil(-Math.log(1 - (highIntCC.balance * monthlyRate) / currentMinPayment) / Math.log(1 + monthlyRate))
+          : null;
+        const fasterMonths = withExtra > 0
+          ? Math.ceil(-Math.log(1 - (highIntCC.balance * monthlyRate) / withExtra) / Math.log(1 + monthlyRate))
+          : null;
+
+        if (currentMonths && fasterMonths && currentMonths > fasterMonths && currentMonths < 600) {
+          const monthsSaved = currentMonths - fasterMonths;
+          debtCards.push({ type: 'good', icon: '🎯',
+            title: `Add $${(suggestedExtra * 4).toFixed(0)}/mo to ${highIntCC.name} → pay off ${monthsSaved} months sooner`,
+            detail: `Based on cutting ~$${suggestedExtra.toFixed(0)}/week from discretionary spending. Current payoff: ~${currentMonths} months. With extra payments: ~${fasterMonths} months.`
+          });
+        }
+      } else if (loans.length > 0) {
+        const smallLoan = [...loans].filter(l=>l.balance>0).sort((a,b)=>a.balance-b.balance)[0];
+        if (smallLoan) {
+          const weeksToPayoff = Math.ceil(smallLoan.balance / suggestedExtra);
+          debtCards.push({ type: 'good', icon: '🎯',
+            title: `Put $${suggestedExtra.toFixed(0)}/week extra toward ${smallLoan.name}`,
+            detail: `At that rate, you'd wipe out $${smallLoan.balance.toFixed(2)} in roughly ${weeksToPayoff} weeks on top of regular payments.`
+          });
+        }
+      }
+    }
+  }
+
+  const debtHtml = debtCards.length === 0 ? '' : `
+    <div style="border-top:1px solid var(--border);padding-top:16px;margin-top:4px;">
+      <div style="font-size:11px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:var(--text-muted);margin-bottom:10px;">💡 Debt Paydown Opportunities</div>
+      ${debtCards.map(c => `
+        <div class="insight-card ${c.type}">
+          <span class="insight-icon">${c.icon}</span>
+          <div class="insight-body">
+            <div class="insight-title">${c.title}</div>
+            <div class="insight-detail">${c.detail}</div>
+          </div>
+        </div>`).join('')}
+    </div>`;
+
+  document.getElementById('insights-debt').innerHTML = debtHtml;
+
   document.getElementById('insights-ai').innerHTML = '';
   openModal('insights-modal');
 }
@@ -2502,11 +2648,25 @@ async function getAIInsights() {
     .map(([cat, goal]) => {
       const now = new Date();
       const spent = allTransactions.filter(t =>
-        t.year===now.getFullYear() && t.month===now.getMonth() &&
-        t.status==='completed' && t.category===cat && t.amount<0
-      ).reduce((s,t)=>s+Math.abs(t.amount),0);
+        t.year === now.getFullYear() && t.month === now.getMonth() &&
+        t.category === cat && t.amount < 0 && t.status !== 'skipped'
+      ).reduce((s,t) => s + Math.abs(t.amount), 0);
       return `${CAT_LABELS_INS[cat]||cat}: $${spent.toFixed(0)} of $${goal} budget`;
     }).join(', ');
+
+  // Debt context for AI
+  const totalCCDebt2 = creditCards.reduce((s,c) => s + (c.balance||0), 0);
+  const totalLoanDebt2 = loans.reduce((s,l) => s + (l.balance||0), 0);
+  let debtContext = '';
+  if (totalCCDebt2 > 0 || totalLoanDebt2 > 0) {
+    const ccLines = creditCards.filter(c=>c.balance>0).map(c =>
+      `  ${c.name}: $${c.balance.toFixed(2)} balance${c.rate ? ` at ${c.rate}% APR` : ''}`
+    ).join('\n');
+    const loanLines = loans.filter(l=>l.balance>0).map(l =>
+      `  ${l.name}: $${l.balance.toFixed(2)} remaining${l.rate ? ` at ${l.rate}%` : ''}`
+    ).join('\n');
+    debtContext = `My current debt:\n${ccLines}\n${loanLines}\n\n`;
+  }
 
   const weekSummary = weeks.map(w => {
     const catLines = Object.entries(w.cats)
@@ -2516,9 +2676,9 @@ async function getAIInsights() {
     return `${w.label} (${w.range}) — Total: $${w.total.toFixed(2)}\n${catLines||'  No spending'}`;
   }).join('\n\n');
 
-  const prompt = `You are a friendly, direct personal finance coach. I'm sharing my anonymized weekly spending data (category totals only, no merchant names). Give me a brief, practical 3-4 paragraph briefing on my spending trends across groceries, gas, dining out, and shopping. Be specific about the numbers. Flag anything concerning. Praise genuine improvements. End with 1-2 concrete action items for the coming week. Write in natural paragraphs, no bullet points, under 200 words.
+  const prompt = `You are a friendly, direct personal finance coach. I'm sharing my anonymized weekly spending data (category totals only, no merchant names). Give me a brief, practical 3-4 paragraph briefing on my spending trends across groceries, gas, dining out, and shopping. Be specific about the numbers. Flag anything concerning. Praise genuine improvements. Specifically address how my discretionary spending this week compares to what I could be putting toward debt paydown instead. End with 1-2 concrete action items for the coming week. Write in natural paragraphs, no bullet points, under 200 words.
 
-${budgetSummary ? `My monthly budget goals: ${budgetSummary}\n\n` : ''}My spending data:\n${weekSummary}`;
+${budgetSummary ? `My monthly budget goals: ${budgetSummary}\n\n` : ''}${debtContext}My spending data:\n${weekSummary}`;
 
   // Copy prompt to clipboard and open Claude.ai
   try {
