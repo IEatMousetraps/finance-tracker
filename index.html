@@ -186,7 +186,7 @@
   }
   .day-cell {
     background: var(--surface);
-    min-height: 140px;
+    min-height: 100px;
     padding: 10px;
     cursor: pointer;
     transition: background 0.15s;
@@ -228,8 +228,8 @@
   .day-balance.negative { color: var(--red); }
   .day-transactions { flex: 1; display: flex; flex-direction: column; gap: 2px; }
   .txn-pill {
-    font-size: 11px;
-    padding: 3px 6px;
+    font-size: 10px;
+    padding: 2px 5px;
     border-radius: 3px;
     white-space: nowrap;
     overflow: hidden;
@@ -1845,8 +1845,8 @@ function renderCalendar() {
     if (!isPastStart && displayBal < 1000) cls += ' low-balance';
 
     let txnHtml = '';
-    const visible = allDay.slice(0, 4);
-    const more = allDay.length - 4;
+    const visible = allDay.slice(0, 8);
+    const more = allDay.length - 8;
     
     for (const t of visible) {
       const pillCls = t.amount > 0 ? 'income' : (t.status === 'completed' ? 'completed' : (t.isVirtualBill || t.status === 'expected' ? 'expected' : 'pending'));
@@ -2238,8 +2238,8 @@ function renderCCCalendar() {
     let cls = 'day-cell';
     if (isToday) cls += ' today';
 
-    const visible = txns.slice(0, 4);
-    const more = txns.length - 4;
+    const visible = txns.slice(0, 8);
+    const more = txns.length - 8;
     let txnHtml = visible.map(t => {
       const pillCls = t.amount > 0 ? 'income' : (t.status === 'completed' ? 'completed' : t.status === 'expected' ? 'expected' : 'pending');
       const sign = t.amount > 0 ? '+' : '';
