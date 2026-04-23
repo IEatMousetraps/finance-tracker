@@ -1689,6 +1689,17 @@ async function loadTransactions() {
   snap.forEach(d => allTransactions.push({ id: d.id, ...d.data() }));
 }
 
+
+// Sort transactions: expected (virtual/yellow) first, then pending (purple), then completed
+function sortTxnsForDisplay(txns) {
+  const order = t => {
+    if (t.isVirtualBill || t.status === "expected") return 0;
+    if (t.status === "pending") return 1;
+    return 2;
+  };
+  return [...txns].sort((a, b) => order(a) - order(b));
+}
+
 function getTxnsForDate(year, month, day) {
   return allTransactions.filter(t => t.year === year && t.month === month && t.day === day);
 }
@@ -1813,7 +1824,7 @@ function renderCalendar() {
     
     const txns = getTxnsForDate(currentYear, currentMonth, d);
     const virtualBills = getBillsForDate(currentYear, currentMonth, d);
-    const allDay = [...txns.filter(t => t.status !== 'skipped'), ...virtualBills];
+    const allDay = sortTxnsForDisplay([...txns.filter(t => t.status !== 'skipped'), ...virtualBills]);
     
     // Cleared balance (completed only) — used for top bar
     const clearedBal = calcRunningBalance(currentYear, currentMonth, d);
@@ -2943,7 +2954,7 @@ function openDay(day) {
 function renderDayDetail(day) {
   const txns = getTxnsForDate(currentYear, currentMonth, day);
   const virtual = getBillsForDate(currentYear, currentMonth, day);
-  const all = [...txns.filter(t => t.status !== 'skipped'), ...virtual];
+  const all = sortTxnsForDisplay([...txns.filter(t => t.status !== 'skipped'), ...virtual]);
   
   const bal = calcRunningBalance(currentYear, currentMonth, day);
   const out = all.filter(t=>t.amount<0&&t.status==='completed').reduce((s,t)=>s+t.amount,0);
