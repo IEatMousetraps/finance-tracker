@@ -1781,11 +1781,10 @@ function calcRunningBalance(upToYear, upToMonth, upToDay, includeNonCompleted = 
 function calcProjectedBalance(upToYear, upToMonth, upToDay) {
   let bal = calcRunningBalance(upToYear, upToMonth, upToDay, true);
 
-  // Also include virtual bills (auto-generated recurring) up to this date
-  const startInt = START_DATE.getFullYear() * 10000 + START_DATE.getMonth() * 100 + START_DATE.getDate();
-  const toInt = upToYear * 10000 + upToMonth * 100 + upToDay;
-
-  // Scan every day from start up to target to catch virtual bills
+  // Also include virtual bills (auto-generated recurring) that have NOT yet been
+  // logged as real transactions. getBillsForDate already handles this suppression:
+  // it only returns a virtual bill if no real transaction with the same description
+  // and recurringBillId exists on that day.
   const startDate = new Date(START_DATE);
   const toDate = new Date(upToYear, upToMonth, upToDay);
   for (let dt = new Date(startDate); dt <= toDate; dt.setDate(dt.getDate() + 1)) {
@@ -1826,18 +1825,21 @@ function renderCalendar() {
     const virtualBills = getBillsForDate(currentYear, currentMonth, d);
     const allDay = sortTxnsForDisplay([...txns.filter(t => t.status !== 'skipped'), ...virtualBills]);
     
-    // Cleared balance (completed only) — used for top bar
+    // Cleared balance (completed only) — primary display on calendar
     const clearedBal = calcRunningBalance(currentYear, currentMonth, d);
-    // Projected balance (all statuses + virtual bills) — shown on calendar
-    const projectedBal = calcProjectedBalance(currentYear, currentMonth, d);
+    // Projected balance for THIS DAY ONLY (cleared balance + pending items on this specific day)
+    const dayPendingAmount = allDay
+      .filter(t => t.status !== 'completed')
+      .reduce((s, t) => s + t.amount, 0);
+    const projectedBal = clearedBal + dayPendingAmount;
     const dayOut = allDay.filter(t => t.amount < 0 && t.status === 'completed').reduce((s,t) => s+t.amount, 0);
     const dayIn = allDay.filter(t => t.amount > 0 && t.status === 'completed').reduce((s,t) => s+t.amount, 0);
 
     const hasPending = allDay.some(t => t.status !== 'completed');
-    const balClass = projectedBal < 0 ? 'negative' : '';
-    // Show projected if it differs from cleared (i.e. there are pending/expected items), else show cleared
-    const displayBal = projectedBal;
-    const isProjected = Math.abs(projectedBal - clearedBal) > 0.001;
+    // Show projected (cleared + today's pending) if there are pending items today, else cleared
+    const displayBal = hasPending ? projectedBal : clearedBal;
+    const isProjected = hasPending && Math.abs(dayPendingAmount) > 0.001;
+    const balClass = displayBal < 0 ? 'negative' : '';
     
     let cls = 'day-cell';
     if (isPastStart) cls += ' past-start';
