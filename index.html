@@ -172,7 +172,6 @@
     background: var(--border);
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    overflow: hidden;
     margin-bottom: 16px;
   }
   .day-header {
@@ -231,12 +230,20 @@
     font-size: 10px;
     padding: 2px 5px;
     border-radius: 3px;
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 4px;
+  }
+  .txn-pill > span:first-child {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    display: flex;
-    justify-content: space-between;
-    gap: 4px;
+    min-width: 0;
+  }
+  .txn-pill > span:last-child {
+    white-space: nowrap;
+    flex-shrink: 0;
   }
   .txn-pill.pending {
     background: var(--pending-bg);
@@ -1155,12 +1162,6 @@
       <p style="font-size:12px;color:var(--text-muted);margin-bottom:14px;" id="login-email-display"></p>
       <button class="btn btn-secondary" id="btn-sign-out">Sign Out</button>
     </div>
-
-    <div class="settings-section">
-      <h3>Export Data (temporary — for balance debugging)</h3>
-      <p style="font-size:12px;color:var(--text-muted);margin-bottom:14px;">Downloads every transaction from Firestore as a CSV, for comparing against a bank statement.</p>
-      <button class="btn btn-secondary" id="btn-export-transactions">Export Transactions CSV</button>
-    </div>
   </main>
 </div>
 
@@ -1685,63 +1686,6 @@ async function saveOpeningBalance() {
   renderCalendar();
   updateBalanceBar();
   alert('Balance saved!');
-}
-
-// ── EXPORT (temporary debugging tool) ──────────────────────────────────────────
-function csvEscape(val) {
-  if (val === null || val === undefined) return '';
-  const s = String(val);
-  if (s.includes(',') || s.includes('"') || s.includes('\n')) {
-    return '"' + s.replace(/"/g, '""') + '"';
-  }
-  return s;
-}
-
-async function exportTransactionsCSV() {
-  // Pull a fresh copy straight from Firestore so the export reflects exactly what's stored,
-  // not just whatever happens to be in the in-memory allTransactions array.
-  const snap = await getDocs(collection(db, 'transactions'));
-  const rows = [];
-  snap.forEach(d => rows.push({ id: d.id, ...d.data() }));
-
-  // Sort by date (year, month, day) so it reads chronologically like a bank statement
-  rows.sort((a, b) => {
-    const aInt = (a.year || 0) * 10000 + (a.month || 0) * 100 + (a.day || 0);
-    const bInt = (b.year || 0) * 10000 + (b.month || 0) * 100 + (b.day || 0);
-    return aInt - bInt;
-  });
-
-  const headers = ['id','year','month','day','date','description','amount','category','status','isVirtualBill','recurringBillId','createdAt'];
-  const lines = [headers.join(',')];
-
-  for (const r of rows) {
-    const dateStr = (r.year !== undefined && r.month !== undefined && r.day !== undefined)
-      ? `${r.year}-${String(r.month + 1).padStart(2,'0')}-${String(r.day).padStart(2,'0')}`
-      : '';
-    const line = [
-      r.id, r.year, r.month, r.day, dateStr,
-      r.description, r.amount, r.category, r.status,
-      r.isVirtualBill, r.recurringBillId, r.createdAt
-    ].map(csvEscape).join(',');
-    lines.push(line);
-  }
-
-  // Add a small metadata footer so we know the anchor values this export was generated against
-  lines.push('');
-  lines.push(`# openingBalance,${openingBalance}`);
-  lines.push(`# startDate,${START_DATE.getFullYear()}-${String(START_DATE.getMonth()+1).padStart(2,'0')}-${String(START_DATE.getDate()).padStart(2,'0')}`);
-  lines.push(`# exportedAt,${new Date().toISOString()}`);
-
-  const csvContent = lines.join('\n');
-  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `transactions-export-${new Date().toISOString().slice(0,10)}.csv`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
 }
 
 // ── TRANSACTIONS ──────────────────────────────────────────────────────────────
@@ -4073,7 +4017,6 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-save-balance').addEventListener('click', () => saveOpeningBalance());
   document.getElementById('btn-change-pw').addEventListener('click', () => doChangePassword());
   document.getElementById('btn-sign-out').addEventListener('click', () => doSignOut());
-  document.getElementById('btn-export-transactions').addEventListener('click', () => exportTransactionsCSV());
 
   // Close modals on overlay tap
   document.querySelectorAll('.modal-overlay').forEach(overlay => {
