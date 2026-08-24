@@ -911,6 +911,7 @@
     <button class="nav-btn active" id="nav-calendar">Calendar</button>
     <button class="nav-btn" id="nav-cc-calendar">CC Cal</button>
     <button class="nav-btn" id="nav-reports">Reports</button>
+    <button class="nav-btn" id="nav-forecast">Forecast</button>
     <button class="nav-btn" id="nav-cards">Cards</button>
     <button class="nav-btn" id="nav-loans">Loans</button>
     <button class="nav-btn" id="nav-settings">⚙️ Settings</button>
@@ -1118,6 +1119,45 @@
 </div>
 
 <!-- SETTINGS VIEW -->
+<!-- FORECAST VIEW -->
+<div id="view-forecast" style="display:none;">
+  <main style="max-width:700px;margin:0 auto;padding:24px 16px;">
+    <h2 style="font-family:var(--mono);font-size:22px;font-weight:400;margin:0 0 6px;">Cash Flow Forecast</h2>
+    <p style="font-size:12px;color:var(--text-muted);margin:0 0 24px;">Bills-only projection — shows where your money will be at its lowest point each pay period, so you know what's safe to spend today.</p>
+
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:28px;flex-wrap:wrap;">
+      <label style="font-size:12px;color:var(--text-muted);">Forecast through:</label>
+      <input type="date" id="forecast-end-date" style="font-family:var(--mono);font-size:13px;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);color:var(--text);">
+      <button id="btn-run-forecast" style="font-family:var(--mono);font-size:12px;padding:7px 16px;background:var(--accent);color:#fff;border:none;border-radius:var(--radius);cursor:pointer;">Run Forecast</button>
+    </div>
+
+    <!-- Allocation inputs -->
+    <div id="forecast-allocation" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:24px;">
+      <h3 style="font-size:13px;font-weight:600;margin:0 0 12px;">Surplus Allocation</h3>
+      <p style="font-size:11px;color:var(--text-muted);margin:0 0 14px;">If you have a surplus at the end of the period, how do you want to split it?</p>
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+          <label style="font-size:12px;color:var(--text-muted);min-width:140px;">Extra CC paydown:</label>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <span style="font-size:12px;">$</span>
+            <input type="number" id="alloc-cc" min="0" step="10" value="0" style="font-family:var(--mono);font-size:13px;padding:5px 8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);color:var(--text);width:90px;">
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+          <label style="font-size:12px;color:var(--text-muted);min-width:140px;">Vacation savings:</label>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <span style="font-size:12px;">$</span>
+            <input type="number" id="alloc-vacation" min="0" step="10" value="0" style="font-family:var(--mono);font-size:13px;padding:5px 8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);color:var(--text);width:90px;">
+          </div>
+        </div>
+        <div id="alloc-result" style="font-size:12px;margin-top:6px;padding-top:10px;border-top:1px solid var(--border);"></div>
+      </div>
+    </div>
+
+    <div id="forecast-output"></div>
+  </main>
+</div>
+
 <div id="view-settings" style="display:none;">
   <main>
     <div class="settings-section">
@@ -2069,16 +2109,17 @@ function goToToday() {
 }
 
 function switchView(view) {
-  ['calendar','cc-calendar','reports','cards','loans','settings'].forEach(v => {
+  ['calendar','cc-calendar','reports','forecast','cards','loans','settings'].forEach(v => {
     document.getElementById('view-' + v).style.display = v === view ? '' : 'none';
     document.getElementById('nav-' + v)?.classList.toggle('active', v === view);
   });
   document.getElementById('fab').style.display = view === 'calendar' ? '' : 'none';
   document.getElementById('cc-fab').style.display = view === 'cc-calendar' ? '' : 'none';
-  document.getElementById('balance-bar').style.display = (view === 'settings' || view === 'cc-calendar') ? 'none' : '';
+  document.getElementById('balance-bar').style.display = (view === 'settings' || view === 'cc-calendar' || view === 'forecast') ? 'none' : '';
   document.getElementById('cc-balance-bar').style.display = view === 'cc-calendar' ? '' : 'none';
   if (view === 'reports') renderReports();
   if (view === 'cc-calendar') { renderCCCalendar(); updateCCBalanceBar(); }
+  if (view === 'forecast') initForecast();
 }
 
 // ── CC CALENDAR ───────────────────────────────────────────────────────────────
@@ -3974,6 +4015,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('nav-calendar').addEventListener('click', () => switchView('calendar'));
   document.getElementById('nav-cc-calendar').addEventListener('click', () => switchView('cc-calendar'));
   document.getElementById('nav-reports').addEventListener('click', () => switchView('reports'));
+  document.getElementById('nav-forecast').addEventListener('click', () => switchView('forecast'));
   document.getElementById('nav-cards').addEventListener('click', () => switchView('cards'));
   document.getElementById('nav-loans').addEventListener('click', () => switchView('loans'));
   document.getElementById('nav-settings').addEventListener('click', () => switchView('settings'));
@@ -4100,6 +4142,259 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 });
+
+// ── FORECAST ENGINE ───────────────────────────────────────────────────────────
+
+function initForecast() {
+  // Set default end date to Oct 31 if not already set
+  const endInput = document.getElementById('forecast-end-date');
+  if (!endInput.value) {
+    const y = new Date().getFullYear();
+    endInput.value = `${y}-10-31`;
+  }
+  document.getElementById('btn-run-forecast').onclick = runForecast;
+  document.getElementById('alloc-cc').oninput = updateAllocResult;
+  document.getElementById('alloc-vacation').oninput = updateAllocResult;
+}
+
+function runForecast() {
+  const endDateStr = document.getElementById('forecast-end-date').value;
+  if (!endDateStr) return alert('Please pick an end date.');
+
+  const today = new Date();
+  today.setHours(0,0,0,0);
+  const endDate = new Date(endDateStr + 'T00:00:00');
+
+  // Starting balance = current cleared balance
+  const startBalance = openingBalance + allTransactions
+    .filter(t => t.status === 'completed')
+    .reduce((sum, t) => sum + t.amount, 0);
+
+  // Build the recurring bill schedule from recurringBills data
+  const events = buildForecastEvents(today, endDate);
+
+  // Sort by date
+  events.sort((a,b) => a.date - b.date);
+
+  // Run the simulation day by day, tracking running balance
+  let balance = startBalance;
+  const dailyBalances = [];
+  let d = new Date(today);
+  d.setDate(d.getDate() + 1); // start from tomorrow
+
+  while (d <= endDate) {
+    const dayEvents = events.filter(e => e.date.toDateString() === d.toDateString());
+    const dayTotal = dayEvents.reduce((sum, e) => sum + e.amount, 0);
+    if (dayTotal !== 0 || dayEvents.length > 0) {
+      balance += dayTotal;
+      dailyBalances.push({ date: new Date(d), balance, events: dayEvents });
+    }
+    d.setDate(d.getDate() + 1);
+  }
+
+  renderForecastOutput(startBalance, dailyBalances, endDate);
+}
+
+function buildForecastEvents(today, endDate) {
+  const events = [];
+
+  // Helper: add events for a bill on a fixed day-of-month, monthly
+  function addMonthly(name, dayOfMonth, amount, startFrom) {
+    let d = new Date(startFrom);
+    d.setDate(1);
+    while (d <= endDate) {
+      let billDate = new Date(d.getFullYear(), d.getMonth(), Math.min(dayOfMonth, new Date(d.getFullYear(), d.getMonth()+1, 0).getDate()));
+      if (billDate > today && billDate <= endDate) {
+        events.push({ date: billDate, name, amount });
+      }
+      d.setMonth(d.getMonth() + 1);
+    }
+  }
+
+  // Helper: add events every N weeks from a last-known date
+  function addNWeeks(name, amount, lastDate, weeks) {
+    let d = new Date(lastDate);
+    d.setDate(d.getDate() + weeks * 7);
+    while (d <= endDate) {
+      if (d > today) events.push({ date: new Date(d), name, amount });
+      d.setDate(d.getDate() + weeks * 7);
+    }
+  }
+
+  // ── MONTHLY BILLS (from recurringBills collection via allTransactions pattern)
+  // Using the schedule confirmed from your Settings screenshots:
+  addMonthly('Mortgage', 1, -1043.89, today);
+  addMonthly('Lowes CC Payment', 1, -41.00, today);
+  addMonthly('Fidelity Loan', 3, -252.50, today);
+  addMonthly('Fidelity CC', 3, -166.00, today);
+  addMonthly('Vetsource', 5, -61.43, today);
+  addMonthly('Apple - Storage', 5, -9.99, today);
+  addMonthly('AT&T - Internet', 5, -65.43, today);
+  addMonthly('Car Payment', 5, -378.89, today);
+  addMonthly('AEP', 6, -250.00, today);
+  addMonthly('Wells Fargo', 14, -78.00, today);
+  addMonthly('Crew STM', 15, -57.94, today);
+  addMonthly('Paypal CC Payment', 17, -30.00, today);
+  addMonthly('Atlas Butler', 17, -32.95, today);
+  addMonthly('Progressive', 19, -129.83, today);
+  addMonthly('Amazon Prime', 22, -7.55, today);
+  addMonthly('NYT', 23, -4.00, today);
+  addMonthly('Apple - Discord Nitro', 28, -10.79, today); // treat 31st as 28th to be safe
+
+  // ── PAYCHECKS — every 2 weeks Friday, last was 8/14/2026
+  addNWeeks('Paycheck', 1600.00, new Date('2026-08-14'), 2);
+
+  // ── DOG FOOD — every 5 weeks Friday, last was 8/10/2026
+  addNWeeks('Dog Food', -77.23, new Date('2026-08-10'), 5);
+
+  // ── GAS — every 2 weeks Saturday, last was 8/19/2026
+  addNWeeks('Gas', -35.00, new Date('2026-08-19'), 2);
+
+  // ── GROCERIES — every week Saturday, last was 8/23/2026
+  addNWeeks('Groceries', -75.00, new Date('2026-08-23'), 1);
+
+  return events;
+}
+
+function renderForecastOutput(startBalance, dailyBalances, endDate) {
+  const out = document.getElementById('forecast-output');
+
+  if (dailyBalances.length === 0) {
+    out.innerHTML = '<p style="color:var(--text-muted);font-size:13px;">No projected transactions in this period.</p>';
+    return;
+  }
+
+  const finalBalance = dailyBalances[dailyBalances.length - 1].balance;
+  const lowestPoint = Math.min(...dailyBalances.map(d => d.balance));
+  const lowestDay = dailyBalances.find(d => d.balance === lowestPoint);
+  const surplus = finalBalance - startBalance;
+
+  // Show/hide allocation section
+  const allocSection = document.getElementById('forecast-allocation');
+  allocSection.style.display = surplus > 0 ? '' : 'none';
+  window._forecastFinalBalance = finalBalance;
+  window._forecastSurplus = surplus;
+  updateAllocResult();
+
+  // Format date
+  function fmt(d) {
+    return d.toLocaleDateString('en-US', { month:'short', day:'numeric' });
+  }
+  function fmtFull(d) {
+    return d.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
+  }
+  function money(n) {
+    const abs = Math.abs(n).toFixed(2);
+    return (n < 0 ? '-' : '+') + '$' + abs;
+  }
+  function color(n) {
+    return n >= 0 ? 'var(--green)' : 'var(--red)';
+  }
+
+  // Group events by pay period (between paychecks)
+  const paycheckDates = dailyBalances.filter(d => d.events.some(e => e.name === 'Paycheck')).map(d => d.date);
+
+  // Build pay periods
+  const periods = [];
+  let periodStart = new Date(today);
+  periodStart.setDate(periodStart.getDate() + 1);
+
+  const allPeriodBounds = [...paycheckDates, new Date(endDate)];
+  for (const pEnd of allPeriodBounds) {
+    const periodEvents = dailyBalances.filter(d => d.date > periodStart && d.date <= pEnd);
+    if (periodEvents.length > 0) {
+      const startBal = periods.length === 0 ? startBalance : periods[periods.length-1].endBalance;
+      const endBal = periodEvents[periodEvents.length-1].balance;
+      const low = Math.min(...periodEvents.map(d => d.balance));
+      const lowDay = periodEvents.find(d => d.balance === low);
+      periods.push({ start: new Date(periodStart), end: new Date(pEnd), events: periodEvents, startBal, endBal, low, lowDay });
+    }
+    periodStart = new Date(pEnd);
+    periodStart.setDate(periodStart.getDate() + 1);
+  }
+
+  let html = `
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:28px;">
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px;">
+        <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);margin-bottom:6px;">Starting Balance</div>
+        <div style="font-size:20px;font-weight:500;color:${color(startBalance)};">${money(startBalance)}</div>
+      </div>
+      <div style="background:var(--surface);border:1px solid ${lowestPoint < 0 ? 'var(--red)' : 'var(--border)'};border-radius:var(--radius);padding:14px;">
+        <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);margin-bottom:6px;">Lowest Point</div>
+        <div style="font-size:20px;font-weight:500;color:${color(lowestPoint)};">${money(lowestPoint)}</div>
+        <div style="font-size:10px;color:var(--text-muted);margin-top:3px;">${fmtFull(lowestDay.date)}</div>
+      </div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px;">
+        <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);margin-bottom:6px;">End of Period</div>
+        <div style="font-size:20px;font-weight:500;color:${color(finalBalance)};">${money(finalBalance)}</div>
+        <div style="font-size:10px;color:var(--text-muted);margin-top:3px;">${fmt(endDate)}</div>
+      </div>
+    </div>
+  `;
+
+  if (lowestPoint < 0) {
+    html += `<div style="background:#fff5f5;border:1px solid var(--red);border-radius:var(--radius);padding:12px 16px;margin-bottom:20px;font-size:12px;color:var(--red);">⚠️ Your balance goes negative on ${fmtFull(lowestDay.date)}. You'll need to reduce spending or delay a bill before that date.</div>`;
+  } else if (lowestPoint < 100) {
+    html += `<div style="background:#fffbf0;border:1px solid var(--expected-border);border-radius:var(--radius);padding:12px 16px;margin-bottom:20px;font-size:12px;color:var(--expected-text);">⚡ Your balance gets very low on ${fmtFull(lowestDay.date)} ($${lowestPoint.toFixed(2)}). Be cautious with spending before that date.</div>`;
+  }
+
+  // Pay period cards
+  html += `<h3 style="font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);margin:0 0 12px;">Pay Period Breakdown</h3>`;
+
+  for (const period of periods) {
+    const hasPaycheck = period.events.some(d => d.events.some(e => e.name === 'Paycheck'));
+    const lowColor = period.low < 0 ? 'var(--red)' : period.low < 100 ? 'var(--expected-text)' : 'var(--text-muted)';
+
+    html += `
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:12px;overflow:hidden;">
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 14px;background:var(--surface2);border-bottom:1px solid var(--border);">
+          <div style="font-size:12px;font-weight:600;">${fmt(period.start)} – ${fmt(period.end)}</div>
+          <div style="display:flex;gap:16px;font-size:11px;">
+            <span>Low: <span style="color:${lowColor};font-weight:600;">$${period.low.toFixed(2)}</span></span>
+            <span>End: <span style="color:${color(period.endBal)};font-weight:600;">${money(period.endBal)}</span></span>
+          </div>
+        </div>
+        <div style="padding:10px 14px;">
+    `;
+
+    for (const day of period.events) {
+      html += `<div style="display:flex;justify-content:space-between;align-items:baseline;padding:3px 0;border-bottom:1px solid var(--surface2);">`;
+      html += `<div style="font-size:11px;color:var(--text-muted);min-width:80px;">${fmtFull(day.date)}</div>`;
+      html += `<div style="flex:1;padding:0 10px;">`;
+      for (const e of day.events) {
+        html += `<div style="font-size:11px;display:flex;justify-content:space-between;"><span>${e.name}</span><span style="color:${e.amount>=0?'var(--green)':'var(--red)'};font-weight:500;">${money(e.amount)}</span></div>`;
+      }
+      html += `</div>`;
+      html += `<div style="font-size:11px;font-weight:600;min-width:70px;text-align:right;color:${color(day.balance)};">$${day.balance.toFixed(2)}</div>`;
+      html += `</div>`;
+    }
+
+    html += `</div></div>`;
+  }
+
+  out.innerHTML = html;
+}
+
+function updateAllocResult() {
+  const surplus = window._forecastSurplus || 0;
+  const finalBalance = window._forecastFinalBalance || 0;
+  if (surplus <= 0) return;
+
+  const cc = parseFloat(document.getElementById('alloc-cc').value) || 0;
+  const vac = parseFloat(document.getElementById('alloc-vacation').value) || 0;
+  const total = cc + vac;
+  const cushion = finalBalance - total;
+  const el = document.getElementById('alloc-result');
+
+  let html = `<div style="display:flex;flex-direction:column;gap:4px;">`;
+  html += `<div style="display:flex;justify-content:space-between;font-size:12px;"><span>Projected end balance:</span><span style="color:var(--green);">$${finalBalance.toFixed(2)}</span></div>`;
+  html += `<div style="display:flex;justify-content:space-between;font-size:12px;"><span>CC paydown + vacation:</span><span style="color:var(--red);">-$${total.toFixed(2)}</span></div>`;
+  html += `<div style="display:flex;justify-content:space-between;font-size:13px;font-weight:600;border-top:1px solid var(--border);padding-top:6px;margin-top:2px;"><span>Remaining cushion:</span><span style="color:${cushion < 0 ? 'var(--red)' : cushion < 100 ? 'var(--expected-text)' : 'var(--green)'};">$${cushion.toFixed(2)}</span></div>`;
+  if (cushion < 0) html += `<div style="font-size:11px;color:var(--red);margin-top:4px;">⚠️ You're allocating more than your surplus. Reduce one of the amounts.</div>`;
+  else if (cushion < 100) html += `<div style="font-size:11px;color:var(--expected-text);margin-top:4px;">⚡ Very thin cushion — consider keeping more as a buffer.</div>`;
+  html += `</div>`;
+  el.innerHTML = html;
+}
 </script>
 </body>
 </html>
