@@ -4165,10 +4165,9 @@ function runForecast() {
   today.setHours(0,0,0,0);
   const endDate = new Date(endDateStr + 'T00:00:00');
 
-  // Starting balance = current cleared balance
-  const startBalance = openingBalance + allTransactions
-    .filter(t => t.status === 'completed')
-    .reduce((sum, t) => sum + t.amount, 0);
+  // Starting balance = use the same function the calendar uses
+  const now = new Date();
+  const startBalance = calcRunningBalance(now.getFullYear(), now.getMonth(), now.getDate());
 
   const events = buildForecastEvents(today, endDate);
   events.sort((a,b) => a.date - b.date);
