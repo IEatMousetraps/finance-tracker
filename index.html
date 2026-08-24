@@ -4170,29 +4170,30 @@ function runForecast() {
     .filter(t => t.status === 'completed')
     .reduce((sum, t) => sum + t.amount, 0);
 
-  // Build the recurring bill schedule from recurringBills data
   const events = buildForecastEvents(today, endDate);
-
-  // Sort by date
   events.sort((a,b) => a.date - b.date);
 
-  // Run the simulation day by day, tracking running balance
   let balance = startBalance;
   const dailyBalances = [];
   let d = new Date(today);
-  d.setDate(d.getDate() + 1); // start from tomorrow
+  d.setDate(d.getDate() + 1);
 
   while (d <= endDate) {
     const dayEvents = events.filter(e => e.date.toDateString() === d.toDateString());
-    const dayTotal = dayEvents.reduce((sum, e) => sum + e.amount, 0);
-    if (dayTotal !== 0 || dayEvents.length > 0) {
+    if (dayEvents.length > 0) {
+      const dayTotal = dayEvents.reduce((sum, e) => sum + e.amount, 0);
       balance += dayTotal;
       dailyBalances.push({ date: new Date(d), balance, events: dayEvents });
     }
     d.setDate(d.getDate() + 1);
   }
 
-  renderForecastOutput(startBalance, dailyBalances, endDate);
+  try {
+    renderForecastOutput(startBalance, dailyBalances, endDate);
+  } catch(e) {
+    document.getElementById('forecast-output').innerHTML = `<p style="color:var(--red);font-size:13px;">Render error: ${e.message}</p>`;
+    console.error(e);
+  }
 }
 
 function buildForecastEvents(today, endDate) {
@@ -4227,7 +4228,6 @@ function buildForecastEvents(today, endDate) {
   addMonthly('Lowes CC Payment', 1, -41.00, today);
   addMonthly('Fidelity Loan', 3, -252.50, today);
   addMonthly('Fidelity CC', 3, -166.00, today);
-  addMonthly('Vetsource', 5, -61.43, today);
   addMonthly('Apple - Storage', 5, -9.99, today);
   addMonthly('AT&T - Internet', 5, -65.43, today);
   addMonthly('Car Payment', 5, -378.89, today);
@@ -4239,7 +4239,8 @@ function buildForecastEvents(today, endDate) {
   addMonthly('Progressive', 19, -129.83, today);
   addMonthly('Amazon Prime', 22, -7.55, today);
   addMonthly('NYT', 23, -4.00, today);
-  addMonthly('Apple - Discord Nitro', 28, -10.79, today); // treat 31st as 28th to be safe
+  addMonthly('Apple - Discord Nitro', 28, -10.79, today);
+  addMonthly('Vetsource', 31, -61.43, today);
 
   // ── PAYCHECKS — every 2 weeks Friday, last was 8/14/2026
   addNWeeks('Paycheck', 1600.00, new Date('2026-08-14'), 2);
@@ -4269,12 +4270,12 @@ function renderForecastOutput(startBalance, dailyBalances, endDate) {
   const lowestDay = dailyBalances.find(d => d.balance === lowestPoint);
   const surplus = finalBalance - startBalance;
 
-  // Show/hide allocation section
+  // Only show allocation panel if end balance is actually positive
   const allocSection = document.getElementById('forecast-allocation');
-  allocSection.style.display = surplus > 0 ? '' : 'none';
+  allocSection.style.display = (finalBalance > 0 && surplus > 0) ? '' : 'none';
   window._forecastFinalBalance = finalBalance;
   window._forecastSurplus = surplus;
-  updateAllocResult();
+  if (finalBalance > 0 && surplus > 0) updateAllocResult();
 
   // Format date
   function fmt(d) {
@@ -4291,13 +4292,14 @@ function renderForecastOutput(startBalance, dailyBalances, endDate) {
     return n >= 0 ? 'var(--green)' : 'var(--red)';
   }
 
-  // Group events by pay period (between paychecks)
-  const paycheckDates = dailyBalances.filter(d => d.events.some(e => e.name === 'Paycheck')).map(d => d.date);
+  // Group by pay period — anchor from first projected event
+  const paycheckDates = dailyBalances
+    .filter(d => d.events.some(e => e.name === 'Paycheck'))
+    .map(d => new Date(d.date));
 
-  // Build pay periods
   const periods = [];
-  let periodStart = new Date(today);
-  periodStart.setDate(periodStart.getDate() + 1);
+  let periodStart = new Date(dailyBalances[0].date);
+  periodStart.setDate(periodStart.getDate() - 1);
 
   const allPeriodBounds = [...paycheckDates, new Date(endDate)];
   for (const pEnd of allPeriodBounds) {
@@ -4310,7 +4312,6 @@ function renderForecastOutput(startBalance, dailyBalances, endDate) {
       periods.push({ start: new Date(periodStart), end: new Date(pEnd), events: periodEvents, startBal, endBal, low, lowDay });
     }
     periodStart = new Date(pEnd);
-    periodStart.setDate(periodStart.getDate() + 1);
   }
 
   let html = `
