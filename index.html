@@ -1209,6 +1209,17 @@
     </div>
 
     <div class="settings-section">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+        <h3 style="margin:0;">Other Reward Cards</h3>
+        <button class="nav-btn active" id="btn-add-reward-card" style="font-size:11px;">+ Add Card</button>
+      </div>
+      <p style="font-size:12px;color:var(--text-muted);margin-bottom:14px;">Debit cards or other non-credit cards you want factored into the Best Card page (e.g. a rotating-category debit card).</p>
+      <div class="bills-grid" id="reward-cards-list">
+        <div class="empty-state"><div class="icon">💳</div>No other reward cards added</div>
+      </div>
+    </div>
+
+    <div class="settings-section">
       <h3>Card Rewards</h3>
       <p style="font-size:12px;color:var(--text-muted);margin-bottom:14px;">Set each card's cash back / points rates so the Best Card page can recommend which one to use.</p>
       <div id="card-rewards-list"><div class="empty-state"><div class="icon">💳</div>No cards added yet — add cards on the Cards page first</div></div>
@@ -1657,6 +1668,44 @@
   </div>
 </div>
 
+<!-- REWARD-ONLY CARD MODAL (debit cards, etc. — not tracked as debt) -->
+<div class="modal-overlay" id="reward-card-modal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <h3 id="reward-card-modal-title">Add Reward Card</h3>
+    <div class="form-group">
+      <label>Card Name</label>
+      <input type="text" id="rc-name" placeholder="e.g. PayPal Debit Card">
+    </div>
+    <div class="form-group">
+      <label>This Month's 5% Category</label>
+      <select id="rc-category"></select>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Category Rate (%)</label>
+        <input type="number" step="0.01" id="rc-category-rate" value="5">
+      </div>
+      <div class="form-group">
+        <label>Monthly Spend Cap ($)</label>
+        <input type="number" step="0.01" id="rc-cap" value="1000">
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Base Rate Outside Category (%)</label>
+      <input type="number" step="0.01" id="rc-base-rate" value="0">
+    </div>
+    <div class="form-group">
+      <label>Notes</label>
+      <input type="text" id="rc-notes" placeholder="e.g. category locks for the month, can't be changed">
+    </div>
+    <div style="font-size:10px;color:var(--text-muted);margin-top:-6px;margin-bottom:12px;">Remember to come back and update the category each month — it can't be changed once selected.</div>
+    <button class="btn btn-primary" id="btn-save-reward-card">Save</button>
+    <button class="btn btn-secondary" id="btn-cancel-reward-card" style="margin-top:8px;">Cancel</button>
+    <button class="btn btn-danger" id="delete-reward-card-btn" style="display:none;">Remove Card</button>
+  </div>
+</div>
+
 <!-- ADD LOAN MODAL -->
 <div class="modal-overlay" id="loan-modal">
   <div class="modal">
@@ -1747,6 +1796,7 @@ async function init() {
   await loadSettings();
   await loadBills();
   await loadCards();
+  await loadRewardCards();
   await loadLoans();
   await loadBudgets();
   await loadCCTransactions();
@@ -2167,7 +2217,7 @@ function switchView(view) {
   if (view === 'cc-calendar') { renderCCCalendar(); updateCCBalanceBar(); }
   if (view === 'forecast') initForecast();
   if (view === 'bestcard') initBestCard();
-  if (view === 'settings') renderCardRewardsSettings();
+  if (view === 'settings') { renderCardRewardsSettings(); renderRewardCardsList(); }
 }
 
 // ── CC CALENDAR ───────────────────────────────────────────────────────────────
@@ -3796,9 +3846,9 @@ function getDefaultRewards(cardName) {
       notes: "Store card — really only usable/earns at Lowe's." };
   }
   if (n.includes('paypal')) {
-    return { type: 'cashback', pointValueCents: 1, baseRate: 1, annualFee: 0,
-      rules: [ { match: 'merchant', value: 'paypal', rate: 3, label: '3% on purchases made through PayPal' } ],
-      notes: 'Confirm your general (non-PayPal) rate — 1% is a common default.' };
+    return { type: 'cashback', pointValueCents: 1, baseRate: 1.5, annualFee: 0,
+      rules: [ { match: 'merchant', value: 'paypal', rate: 3, label: '3% at PayPal checkout' } ],
+      notes: '1.5% on everything else (confirmed via PayPal — this rate dropped from 2% in 2024).' };
   }
   if (n.includes('venture')) {
     return { type: 'points', pointValueCents: 1, baseRate: 1.25, annualFee: 0,
@@ -3872,12 +3922,13 @@ function runBestCardCalc() {
     out.innerHTML = `<p style="color:var(--red);font-size:12px;">Enter a valid amount first.</p>`;
     return;
   }
-  if (creditCards.length === 0) {
-    out.innerHTML = `<div class="empty-state"><div class="icon">💳</div>No cards added yet — add cards on the Cards page first</div>`;
+  if (creditCards.length === 0 && rewardCards.length === 0) {
+    out.innerHTML = `<div class="empty-state"><div class="icon">💳</div>No cards added yet — add cards on the Cards page or in Settings first</div>`;
     return;
   }
-  const results = creditCards.map(c => ({ card: c, ...estimateReward(c, amount, category, merchant) }))
-    .sort((a,b) => b.dollarValue - a.dollarValue);
+  const ccResults = creditCards.map(c => ({ card: c, ...estimateReward(c, amount, category, merchant) }));
+  const rcResults = rewardCards.map(c => ({ card: { name: c.name }, ...estimateRewardCardReward(c, amount, category) }));
+  const results = [...ccResults, ...rcResults].sort((a,b) => b.dollarValue - a.dollarValue);
 
   out.innerHTML = results.map((r, i) => {
     const isBest = i === 0 && r.dollarValue > 0;
@@ -3999,6 +4050,125 @@ async function saveCardRewards(cardId) {
   await loadCards();
   alert('Card rewards saved!');
 }
+
+// ── OTHER REWARD CARDS (debit cards, etc. — not tracked as debt) ─────────────
+let rewardCards = [];
+let editingRewardCardId = null;
+
+async function loadRewardCards() {
+  rewardCards = [];
+  const snap = await getDocs(collection(db, 'rewardCards'));
+  snap.forEach(d => rewardCards.push({ id: d.id, ...d.data() }));
+}
+
+function populateRewardCategorySelect(selectedValue) {
+  const sel = document.getElementById('rc-category');
+  sel.innerHTML = TXN_CATEGORIES.map(c => `<option value="${c.value}" ${c.value === selectedValue ? 'selected' : ''}>${c.label}</option>`).join('');
+}
+
+function openAddRewardCard() {
+  editingRewardCardId = null;
+  document.getElementById('reward-card-modal-title').textContent = 'Add Reward Card';
+  document.getElementById('delete-reward-card-btn').style.display = 'none';
+  document.getElementById('rc-name').value = '';
+  populateRewardCategorySelect('shopping');
+  document.getElementById('rc-category-rate').value = 5;
+  document.getElementById('rc-cap').value = 1000;
+  document.getElementById('rc-base-rate').value = 0;
+  document.getElementById('rc-notes').value = "Category locks in for the calendar month and can't be changed once selected.";
+  openModal('reward-card-modal');
+}
+
+function editRewardCard(id) {
+  const c = rewardCards.find(c => c.id === id);
+  if (!c) return;
+  editingRewardCardId = id;
+  document.getElementById('reward-card-modal-title').textContent = 'Edit Reward Card';
+  document.getElementById('delete-reward-card-btn').style.display = '';
+  document.getElementById('rc-name').value = c.name;
+  populateRewardCategorySelect(c.monthlyCategory);
+  document.getElementById('rc-category-rate').value = c.categoryRate;
+  document.getElementById('rc-cap').value = c.monthlyCap;
+  document.getElementById('rc-base-rate').value = c.baseRate;
+  document.getElementById('rc-notes').value = c.notes || '';
+  openModal('reward-card-modal');
+}
+
+async function saveRewardCard() {
+  const name = document.getElementById('rc-name').value.trim();
+  const monthlyCategory = document.getElementById('rc-category').value;
+  const categoryRate = parseFloat(document.getElementById('rc-category-rate').value) || 0;
+  const monthlyCap = parseFloat(document.getElementById('rc-cap').value) || 0;
+  const baseRate = parseFloat(document.getElementById('rc-base-rate').value) || 0;
+  const notes = document.getElementById('rc-notes').value.trim();
+  if (!name) return alert('Please enter a card name');
+  const data = { name, monthlyCategory, categoryRate, monthlyCap, baseRate, notes, updatedAt: new Date().toISOString() };
+  if (editingRewardCardId) {
+    await updateDoc(doc(db, 'rewardCards', editingRewardCardId), data);
+  } else {
+    await addDoc(collection(db, 'rewardCards'), data);
+  }
+  closeModal('reward-card-modal');
+  await loadRewardCards();
+  renderRewardCardsList();
+}
+
+async function deleteRewardCard() {
+  if (!editingRewardCardId) return;
+  await deleteDoc(doc(db, 'rewardCards', editingRewardCardId));
+  editingRewardCardId = null;
+  closeModal('reward-card-modal');
+  await loadRewardCards();
+  renderRewardCardsList();
+}
+
+function renderRewardCardsList() {
+  const list = document.getElementById('reward-cards-list');
+  if (!list) return;
+  if (rewardCards.length === 0) {
+    list.innerHTML = `<div class="empty-state"><div class="icon">💳</div>No other reward cards added</div>`;
+    return;
+  }
+  list.innerHTML = rewardCards.map(c => {
+    const catLabel = TXN_CATEGORIES.find(t => t.value === c.monthlyCategory)?.label || c.monthlyCategory;
+    return `
+      <div class="bill-item">
+        <div class="bill-info">
+          <div class="bill-name">${c.name}</div>
+          <div class="bill-meta">${c.categoryRate}% on ${catLabel} up to $${c.monthlyCap}/mo · ${c.baseRate}% elsewhere</div>
+        </div>
+        <div class="bill-actions">
+          <button class="icon-btn" onclick="editRewardCard('${c.id}')">✏️</button>
+          <button class="icon-btn danger" onclick="deleteRewardCardQuick('${c.id}')">✕</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+async function deleteRewardCardQuick(id) {
+  if (!confirm('Remove this reward card?')) return;
+  await deleteDoc(doc(db, 'rewardCards', id));
+  await loadRewardCards();
+  renderRewardCardsList();
+}
+
+// Estimates the reward for a rotating-category reward/debit card.
+// Reward is capped at monthlyCap * categoryRate — a rough per-purchase approximation
+// since we don't track running monthly spend on these cards.
+function estimateRewardCardReward(rc, amount, category) {
+  const inCategory = category === rc.monthlyCategory;
+  const rate = inCategory ? (rc.categoryRate || 0) : (rc.baseRate || 0);
+  let dollarValue = amount * (rate / 100);
+  if (inCategory && rc.monthlyCap) {
+    const maxReward = rc.monthlyCap * ((rc.categoryRate || 0) / 100);
+    dollarValue = Math.min(dollarValue, maxReward);
+  }
+  const catLabel = TXN_CATEGORIES.find(t => t.value === rc.monthlyCategory)?.label || rc.monthlyCategory;
+  const label = inCategory ? `${rc.categoryRate}% — this month's category (${catLabel})` : 'Outside this month\'s category';
+  return { dollarValue, rate, label, type: 'cashback', notes: rc.notes };
+}
+
 
 function renderCards() {
   const grid = document.getElementById('cc-grid');
@@ -4473,6 +4643,12 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-save-card').addEventListener('click', () => saveCard());
   document.getElementById('btn-cancel-card').addEventListener('click', () => closeModal('card-modal'));
   document.getElementById('delete-card-btn').addEventListener('click', () => deleteCard());
+
+  // Reward-only card modal (debit cards, etc.)
+  document.getElementById('btn-add-reward-card').addEventListener('click', () => openAddRewardCard());
+  document.getElementById('btn-save-reward-card').addEventListener('click', () => saveRewardCard());
+  document.getElementById('btn-cancel-reward-card').addEventListener('click', () => closeModal('reward-card-modal'));
+  document.getElementById('delete-reward-card-btn').addEventListener('click', () => deleteRewardCard());
 
   // Loan modal
   document.getElementById('btn-add-loan').addEventListener('click', () => openAddLoan());
