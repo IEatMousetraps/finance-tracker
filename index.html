@@ -914,6 +914,7 @@
     <button class="nav-btn" id="nav-forecast">Forecast</button>
     <button class="nav-btn" id="nav-cards">Cards</button>
     <button class="nav-btn" id="nav-loans">Loans</button>
+    <button class="nav-btn" id="nav-bestcard">Best Card</button>
     <button class="nav-btn" id="nav-settings">⚙️ Settings</button>
   </div>
 </nav>
@@ -1073,6 +1074,34 @@
   </main>
 </div>
 
+<!-- BEST CARD VIEW -->
+<div id="view-bestcard" style="display:none;">
+  <main style="max-width:600px;margin:0 auto;">
+    <h2 class="section-title" style="border:none;margin-bottom:4px;">Which Card Should I Use?</h2>
+    <p style="font-size:12px;color:var(--text-muted);margin-bottom:18px;">Enter a purchase and see which card earns the most.</p>
+
+    <div class="settings-section" style="margin-bottom:18px;">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Amount ($)</label>
+          <input type="number" step="0.01" id="bc-amount" placeholder="0.00" inputmode="decimal">
+        </div>
+        <div class="form-group">
+          <label>Category</label>
+          <select id="bc-category"></select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Merchant / where it's from (optional)</label>
+        <input type="text" id="bc-merchant" placeholder="e.g. Lowe's, PayPal, Apple, a hotel" autocomplete="off">
+      </div>
+      <button class="btn btn-primary" id="btn-find-best-card">Find Best Card</button>
+    </div>
+
+    <div id="bc-results"></div>
+  </main>
+</div>
+
 <!-- REPORTS VIEW -->
 <div id="view-reports" style="display:none;">
   <main>
@@ -1177,6 +1206,12 @@
         <div class="empty-state"><div class="icon">📋</div>No recurring bills added</div>
       </div>
       <button class="btn btn-secondary" id="btn-add-bill">+ Add Recurring Bill</button>
+    </div>
+
+    <div class="settings-section">
+      <h3>Card Rewards</h3>
+      <p style="font-size:12px;color:var(--text-muted);margin-bottom:14px;">Set each card's cash back / points rates so the Best Card page can recommend which one to use.</p>
+      <div id="card-rewards-list"><div class="empty-state"><div class="icon">💳</div>No cards added yet — add cards on the Cards page first</div></div>
     </div>
 
     <div class="settings-section">
@@ -2120,17 +2155,19 @@ function goToToday() {
 }
 
 function switchView(view) {
-  ['calendar','cc-calendar','reports','forecast','cards','loans','settings'].forEach(v => {
+  ['calendar','cc-calendar','reports','forecast','cards','loans','bestcard','settings'].forEach(v => {
     document.getElementById('view-' + v).style.display = v === view ? '' : 'none';
     document.getElementById('nav-' + v)?.classList.toggle('active', v === view);
   });
   document.getElementById('fab').style.display = view === 'calendar' ? '' : 'none';
   document.getElementById('cc-fab').style.display = view === 'cc-calendar' ? '' : 'none';
-  document.getElementById('balance-bar').style.display = (view === 'settings' || view === 'cc-calendar' || view === 'forecast') ? 'none' : '';
+  document.getElementById('balance-bar').style.display = (view === 'settings' || view === 'cc-calendar' || view === 'forecast' || view === 'bestcard') ? 'none' : '';
   document.getElementById('cc-balance-bar').style.display = view === 'cc-calendar' ? '' : 'none';
   if (view === 'reports') renderReports();
   if (view === 'cc-calendar') { renderCCCalendar(); updateCCBalanceBar(); }
   if (view === 'forecast') initForecast();
+  if (view === 'bestcard') initBestCard();
+  if (view === 'settings') renderCardRewardsSettings();
 }
 
 // ── CC CALENDAR ───────────────────────────────────────────────────────────────
@@ -3717,6 +3754,252 @@ function simulatePayoff(c) {
   return bal <= 0 ? { months, neverPaysOff: false } : { months: null, neverPaysOff: true };
 }
 
+// ── CARD REWARDS / BEST CARD ──────────────────────────────────────────────────
+const TXN_CATEGORIES = [
+  { value: 'housing', label: '🏠 Housing / Mortgage / Rent' },
+  { value: 'car', label: '🚗 Car Payment' },
+  { value: 'insurance', label: '🛡️ Insurance' },
+  { value: 'utilities', label: '💡 Utilities (Electric, Gas, Water)' },
+  { value: 'internet', label: '📡 Internet / Phone / Cable' },
+  { value: 'subscriptions', label: '📱 Subscriptions & Memberships' },
+  { value: 'groceries', label: '🛒 Groceries' },
+  { value: 'food', label: '🍔 Food & Dining Out' },
+  { value: 'coffee', label: '☕ Coffee & Drinks' },
+  { value: 'gas', label: '⛽ Gas & Fuel' },
+  { value: 'transport', label: '🚌 Transportation & Parking' },
+  { value: 'health', label: '🏥 Medical & Health' },
+  { value: 'pharmacy', label: '💊 Pharmacy' },
+  { value: 'pets', label: '🐾 Pets' },
+  { value: 'kids', label: '👶 Kids & Childcare' },
+  { value: 'shopping', label: '🛍️ Shopping & Clothing' },
+  { value: 'household', label: '🧹 Household & Home Improvement' },
+  { value: 'entertainment', label: '🎬 Entertainment & Fun' },
+  { value: 'sports', label: '⚽ Sports & Recreation' },
+  { value: 'travel', label: '✈️ Travel & Vacation' },
+  { value: 'personal', label: '💇 Personal Care & Beauty' },
+  { value: 'education', label: '📚 Education' },
+  { value: 'charity', label: '❤️ Charity & Gifts' },
+  { value: 'other', label: '📌 Other' },
+];
+
+// Suggested starting rules for a card that doesn't have a `rewards` field saved yet,
+// matched by keyword against the card's name. Purely a convenience default —
+// everything is editable (and overridable) from Settings > Card Rewards.
+function getDefaultRewards(cardName) {
+  const n = (cardName || '').toLowerCase();
+  if (n.includes('lowe')) {
+    return { type: 'cashback', pointValueCents: 1, baseRate: 0, annualFee: 0,
+      rules: [
+        { match: 'merchant', value: 'lowe', rate: 5, label: "5% off at Lowe's" },
+        { match: 'category', value: 'household', rate: 5, label: "5% at Lowe's (home improvement)" },
+      ],
+      notes: "Store card — really only usable/earns at Lowe's." };
+  }
+  if (n.includes('paypal')) {
+    return { type: 'cashback', pointValueCents: 1, baseRate: 1, annualFee: 0,
+      rules: [ { match: 'merchant', value: 'paypal', rate: 3, label: '3% on purchases made through PayPal' } ],
+      notes: 'Confirm your general (non-PayPal) rate — 1% is a common default.' };
+  }
+  if (n.includes('venture')) {
+    return { type: 'points', pointValueCents: 1, baseRate: 1.25, annualFee: 0,
+      rules: [ { match: 'category', value: 'travel', rate: 5, label: '5x miles on hotels/rental cars/vacation rentals — only when booked through Capital One Travel' } ],
+      notes: 'Miles never expire. 5x only applies when booked through the Capital One Travel portal — paying a hotel directly with the card elsewhere only earns 1.25x.' };
+  }
+  if (n.includes('apple')) {
+    return { type: 'cashback', pointValueCents: 1, baseRate: 2, annualFee: 0,
+      rules: [ { match: 'merchant', value: 'apple', rate: 3, label: '3% at Apple & select merchants' } ],
+      notes: '2% assumes paying with Apple Pay. Using the physical titanium card or a virtual card number instead of Apple Pay only earns 1%.' };
+  }
+  if (n.includes('wells')) {
+    return { type: 'cashback', pointValueCents: 1, baseRate: 0, annualFee: 0, rules: [],
+      notes: "Rewards program not confirmed yet — update this once you know your card's terms." };
+  }
+  if (n.includes('fidelity')) {
+    return { type: 'cashback', pointValueCents: 1, baseRate: 2, annualFee: 0, rules: [],
+      notes: 'Flat 2% cash back on everything, deposited into a linked Fidelity account. No annual fee, no foreign transaction fee.' };
+  }
+  return { type: 'cashback', pointValueCents: 1, baseRate: 0, annualFee: 0, rules: [], notes: '' };
+}
+
+function getCardRewards(card) {
+  return card.rewards || getDefaultRewards(card.name);
+}
+
+// Finds the best-matching rule (merchant match beats category match, higher rate wins ties)
+// and returns { rate, label } to apply, falling back to the card's base rate.
+function pickRewardRule(rewards, category, merchantText) {
+  const merchant = (merchantText || '').trim().toLowerCase();
+  const rules = rewards.rules || [];
+  let merchantMatches = rules.filter(r => r.match === 'merchant' && r.value && merchant.includes(r.value.toLowerCase()));
+  if (merchantMatches.length) {
+    const best = merchantMatches.sort((a,b) => b.rate - a.rate)[0];
+    return { rate: best.rate, label: best.label || `${best.rate}${rewards.type==='points'?'x':'%'} — ${best.value}` };
+  }
+  let categoryMatches = rules.filter(r => r.match === 'category' && r.value === category);
+  if (categoryMatches.length) {
+    const best = categoryMatches.sort((a,b) => b.rate - a.rate)[0];
+    return { rate: best.rate, label: best.label || `${best.rate}${rewards.type==='points'?'x':'%'} — ${category}` };
+  }
+  return { rate: rewards.baseRate || 0, label: 'Base rate' };
+}
+
+function estimateReward(card, amount, category, merchantText) {
+  const rewards = getCardRewards(card);
+  const { rate, label } = pickRewardRule(rewards, category, merchantText);
+  let dollarValue;
+  if (rewards.type === 'points') {
+    dollarValue = amount * rate * ((rewards.pointValueCents || 1) / 100);
+  } else {
+    dollarValue = amount * (rate / 100);
+  }
+  return { dollarValue, rate, label, type: rewards.type, notes: rewards.notes };
+}
+
+function initBestCard() {
+  const sel = document.getElementById('bc-category');
+  if (sel && !sel.dataset.populated) {
+    sel.innerHTML = TXN_CATEGORIES.map(c => `<option value="${c.value}">${c.label}</option>`).join('');
+    sel.dataset.populated = '1';
+  }
+}
+
+function runBestCardCalc() {
+  const amount = parseFloat(document.getElementById('bc-amount').value);
+  const category = document.getElementById('bc-category').value;
+  const merchant = document.getElementById('bc-merchant').value;
+  const out = document.getElementById('bc-results');
+  if (isNaN(amount) || amount <= 0) {
+    out.innerHTML = `<p style="color:var(--red);font-size:12px;">Enter a valid amount first.</p>`;
+    return;
+  }
+  if (creditCards.length === 0) {
+    out.innerHTML = `<div class="empty-state"><div class="icon">💳</div>No cards added yet — add cards on the Cards page first</div>`;
+    return;
+  }
+  const results = creditCards.map(c => ({ card: c, ...estimateReward(c, amount, category, merchant) }))
+    .sort((a,b) => b.dollarValue - a.dollarValue);
+
+  out.innerHTML = results.map((r, i) => {
+    const isBest = i === 0 && r.dollarValue > 0;
+    const rateStr = r.type === 'points' ? `${r.rate}x points` : `${r.rate}%`;
+    return `
+      <div style="background:var(--surface);border:1px solid ${isBest ? 'var(--accent)' : 'var(--border)'};border-radius:var(--radius);padding:14px;margin-bottom:10px;${isBest ? 'box-shadow:var(--shadow);' : ''}">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <div style="font-weight:600;font-size:14px;">${isBest ? '🏆 ' : ''}${r.card.name}</div>
+          <div style="font-family:var(--serif);font-size:18px;font-weight:600;color:${r.dollarValue>0?'var(--accent)':'var(--text-muted)'};">$${r.dollarValue.toFixed(2)}</div>
+        </div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">${rateStr} — ${r.label}</div>
+        ${r.notes ? `<div style="font-size:10px;color:var(--text-light);margin-top:4px;">${r.notes}</div>` : ''}
+      </div>
+    `;
+  }).join('');
+}
+
+// ── CARD REWARDS SETTINGS EDITOR ──────────────────────────────────────────────
+function renderCardRewardsSettings() {
+  const container = document.getElementById('card-rewards-list');
+  if (!container) return;
+  if (creditCards.length === 0) {
+    container.innerHTML = `<div class="empty-state"><div class="icon">💳</div>No cards added yet — add cards on the Cards page first</div>`;
+    return;
+  }
+  container.innerHTML = creditCards.map(c => {
+    const r = getCardRewards(c);
+    const rulesHtml = (r.rules || []).map((rule, idx) => `
+      <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;" data-rule-row="${idx}">
+        <select class="rr-match" style="flex:0 0 90px;font-family:var(--mono);font-size:11px;padding:5px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);">
+          <option value="category" ${rule.match==='category'?'selected':''}>Category</option>
+          <option value="merchant" ${rule.match==='merchant'?'selected':''}>Merchant has</option>
+        </select>
+        <input class="rr-value" type="text" value="${(rule.value||'').replace(/"/g,'&quot;')}" placeholder="e.g. travel or lowe" style="flex:1;font-family:var(--mono);font-size:11px;padding:5px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);">
+        <input class="rr-rate" type="number" step="0.01" value="${rule.rate||0}" style="width:60px;font-family:var(--mono);font-size:11px;padding:5px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);">
+        <input class="rr-label" type="text" value="${(rule.label||'').replace(/"/g,'&quot;')}" placeholder="label" style="flex:1.4;font-family:var(--mono);font-size:11px;padding:5px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);">
+        <button type="button" class="icon-btn danger" onclick="this.closest('[data-rule-row]').remove()">✕</button>
+      </div>
+    `).join('');
+
+    return `
+      <div class="settings-section" style="background:var(--surface2);margin-bottom:14px;" data-card-id="${c.id}">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+          <h4 style="font-family:var(--serif);font-weight:300;font-size:16px;">${c.name}</h4>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Reward Type</label>
+            <select class="rr-type">
+              <option value="cashback" ${r.type==='cashback'?'selected':''}>Cash back (%)</option>
+              <option value="points" ${r.type==='points'?'selected':''}>Points / miles</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Base rate (everything else)</label>
+            <input type="number" step="0.01" class="rr-base" value="${r.baseRate||0}">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Point value (¢ per point, if points)</label>
+            <input type="number" step="0.01" class="rr-pointvalue" value="${r.pointValueCents||1}">
+          </div>
+          <div class="form-group">
+            <label>Annual Fee ($)</label>
+            <input type="number" step="0.01" class="rr-fee" value="${r.annualFee||0}">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Bonus rules (category or merchant overrides)</label>
+          <div class="rr-rules-list">${rulesHtml}</div>
+          <button type="button" class="btn btn-secondary" style="margin-top:4px;" onclick="addRewardRuleRow(this)">+ Add Rule</button>
+        </div>
+        <div class="form-group">
+          <label>Notes / caveats</label>
+          <input type="text" class="rr-notes" value="${(r.notes||'').replace(/"/g,'&quot;')}" placeholder="e.g. only applies when booked through the issuer's travel portal">
+        </div>
+        <button type="button" class="btn btn-primary" onclick="saveCardRewards('${c.id}')">Save Rewards</button>
+      </div>
+    `;
+  }).join('');
+}
+
+function addRewardRuleRow(btn) {
+  const list = btn.previousElementSibling;
+  const row = document.createElement('div');
+  row.style.cssText = 'display:flex;gap:6px;align-items:center;margin-bottom:6px;';
+  row.setAttribute('data-rule-row', '');
+  row.innerHTML = `
+    <select class="rr-match" style="flex:0 0 90px;font-family:var(--mono);font-size:11px;padding:5px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);">
+      <option value="category">Category</option>
+      <option value="merchant">Merchant has</option>
+    </select>
+    <input class="rr-value" type="text" placeholder="e.g. travel or lowe" style="flex:1;font-family:var(--mono);font-size:11px;padding:5px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);">
+    <input class="rr-rate" type="number" step="0.01" value="0" style="width:60px;font-family:var(--mono);font-size:11px;padding:5px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);">
+    <input class="rr-label" type="text" placeholder="label" style="flex:1.4;font-family:var(--mono);font-size:11px;padding:5px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);">
+    <button type="button" class="icon-btn danger" onclick="this.closest('[data-rule-row]').remove()">✕</button>
+  `;
+  list.appendChild(row);
+}
+
+async function saveCardRewards(cardId) {
+  const section = document.querySelector(`[data-card-id="${cardId}"]`);
+  if (!section) return;
+  const type = section.querySelector('.rr-type').value;
+  const baseRate = parseFloat(section.querySelector('.rr-base').value) || 0;
+  const pointValueCents = parseFloat(section.querySelector('.rr-pointvalue').value) || 1;
+  const annualFee = parseFloat(section.querySelector('.rr-fee').value) || 0;
+  const notes = section.querySelector('.rr-notes').value.trim();
+  const rules = Array.from(section.querySelectorAll('[data-rule-row]')).map(row => ({
+    match: row.querySelector('.rr-match').value,
+    value: row.querySelector('.rr-value').value.trim(),
+    rate: parseFloat(row.querySelector('.rr-rate').value) || 0,
+    label: row.querySelector('.rr-label').value.trim(),
+  })).filter(r => r.value);
+
+  const rewards = { type, baseRate, pointValueCents, annualFee, notes, rules };
+  await updateDoc(doc(db, 'creditCards', cardId), { rewards });
+  await loadCards();
+  alert('Card rewards saved!');
+}
+
 function renderCards() {
   const grid = document.getElementById('cc-grid');
   if (creditCards.length === 0) {
@@ -4095,6 +4378,8 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('nav-forecast').addEventListener('click', () => switchView('forecast'));
   document.getElementById('nav-cards').addEventListener('click', () => switchView('cards'));
   document.getElementById('nav-loans').addEventListener('click', () => switchView('loans'));
+  document.getElementById('nav-bestcard').addEventListener('click', () => switchView('bestcard'));
+  document.getElementById('btn-find-best-card').addEventListener('click', runBestCardCalc);
   document.getElementById('nav-settings').addEventListener('click', () => switchView('settings'));
 
   // Month nav
