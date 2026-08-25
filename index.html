@@ -1605,6 +1605,17 @@
       <label>Starting Balance ($) <span style="font-size:10px;color:var(--text-muted);font-weight:normal;">— for payoff tracking</span></label>
       <input type="number" step="0.01" id="card-starting" placeholder="Balance when you started tracking">
     </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Promo Rate Ends <span style="font-size:10px;color:var(--text-muted);font-weight:normal;">optional</span></label>
+        <input type="month" id="card-promo-end">
+      </div>
+      <div class="form-group">
+        <label>Rate After Promo (%)</label>
+        <input type="number" step="0.01" id="card-promo-rate" placeholder="e.g. 29.99" inputmode="decimal">
+      </div>
+    </div>
+    <div style="font-size:10px;color:var(--text-muted);margin-top:-6px;margin-bottom:12px;">If the APR above is a promotional rate, set when it ends and what it jumps to — the app will switch over automatically.</div>
     <button class="btn btn-primary" id="btn-save-card">Save Card</button>
     <button class="btn btn-secondary" id="btn-cancel-card" style="margin-top:8px;">Cancel</button>
     <button class="btn btn-danger" id="delete-card-btn" style="display:none;">Remove Card</button>
@@ -2658,21 +2669,23 @@ function openInsights() {
       // Pick the highest-interest CC or smallest balance loan for targeting
       let target = null;
       let targetType = '';
-      const highIntCC = [...creditCards].filter(c=>c.balance>0).sort((a,b)=>(b.rate||0)-(a.rate||0))[0];
+      const highIntCC = [...creditCards].filter(c=>c.balance>0).sort((a,b)=>(getEffectiveRate(b)||0)-(getEffectiveRate(a)||0))[0];
+      const highIntCCRate = highIntCC ? getEffectiveRate(highIntCC) : 0;
       const smallestLoan = [...loans].filter(l=>l.balance>0).sort((a,b)=>a.balance-b.balance)[0];
 
-      if (highIntCC && (!smallestLoan || (highIntCC.rate||0) > 10)) {
+      if (highIntCC && (!smallestLoan || highIntCCRate > 10)) {
         target = highIntCC;
-        targetType = `${highIntCC.name} (${highIntCC.rate||'?'}% APR)`;
+        targetType = `${highIntCC.name} (${highIntCCRate||'?'}% APR)`;
       } else if (smallestLoan) {
         target = smallestLoan;
         targetType = smallestLoan.name;
       }
 
       if (target) {
-        // Interest cost this week on the debt
-        const weeklyInterest = target.rate
-          ? ((target.balance * (target.rate / 100)) / 52).toFixed(2)
+        // Interest cost this week on the debt (uses effective rate for CCs, so a promo expiration is reflected automatically)
+        const targetRate = target === highIntCC ? highIntCCRate : target.rate;
+        const weeklyInterest = targetRate
+          ? ((target.balance * (targetRate / 100)) / 52).toFixed(2)
           : null;
 
         const interestNote = weeklyInterest
@@ -2693,9 +2706,10 @@ function openInsights() {
 
     // Specific paydown suggestion with math
     if (suggestedExtra >= 10) {
-      const highIntCC = [...creditCards].filter(c=>c.balance>0&&c.rate>0).sort((a,b)=>b.rate-a.rate)[0];
+      const highIntCC = [...creditCards].filter(c=>c.balance>0&&getEffectiveRate(c)>0).sort((a,b)=>getEffectiveRate(b)-getEffectiveRate(a))[0];
       if (highIntCC) {
-        const monthlyRate = (highIntCC.rate / 100) / 12;
+        const effRate = getEffectiveRate(highIntCC);
+        const monthlyRate = (effRate / 100) / 12;
         const currentMinPayment = highIntCC.payment || (highIntCC.balance * 0.02);
         const withExtra = currentMinPayment + (suggestedExtra * 4); // monthly equivalent
         const currentMonths = currentMinPayment > 0
@@ -2783,9 +2797,19 @@ async function getAIInsights() {
   const totalLoanDebt2 = loans.reduce((s,l) => s + (l.balance||0), 0);
   let debtContext = '';
   if (totalCCDebt2 > 0 || totalLoanDebt2 > 0) {
-    const ccLines = creditCards.filter(c=>c.balance>0).map(c =>
-      `  ${c.name}: $${c.balance.toFixed(2)} balance${c.rate ? ` at ${c.rate}% APR` : ''}`
-    ).join('\n');
+    const ccLines = creditCards.filter(c=>c.balance>0).map(c => {
+      const effRate = getEffectiveRate(c);
+      let promoInfo = '';
+      if (c.promoEnd) {
+        const [py, pm] = c.promoEnd.split('-').map(Number);
+        const promoEndDate = new Date(py, pm, 0);
+        const promoLabel = promoEndDate.toLocaleString('default',{month:'short',year:'numeric'});
+        promoInfo = promoEndDate > new Date()
+          ? ` (promo rate, jumps to ${c.postPromoRate != null ? c.postPromoRate : c.rate}% after ${promoLabel} statement)`
+          : '';
+      }
+      return `  ${c.name}: $${c.balance.toFixed(2)} balance${effRate ? ` at ${effRate}% APR` : ''}${promoInfo}`;
+    }).join('\n');
     const loanLines = loans.filter(l=>l.balance>0).map(l =>
       `  ${l.name}: $${l.balance.toFixed(2)} remaining${l.rate ? ` at ${l.rate}%` : ''}`
     ).join('\n');
@@ -3602,6 +3626,8 @@ function openAddCard() {
   document.getElementById('card-rate').value = '';
   document.getElementById('card-payment').value = '';
   document.getElementById('card-starting').value = '';
+  document.getElementById('card-promo-end').value = '';
+  document.getElementById('card-promo-rate').value = '';
   openModal('card-modal');
 }
 
@@ -3612,9 +3638,12 @@ async function saveCard() {
   const rate = parseFloat(document.getElementById('card-rate').value) || 0;
   const payment = parseFloat(document.getElementById('card-payment').value) || 0;
   const starting = parseFloat(document.getElementById('card-starting').value) || 0;
+  const promoEnd = document.getElementById('card-promo-end').value || null;
+  const promoRateInput = document.getElementById('card-promo-rate').value;
+  const postPromoRate = promoRateInput !== '' ? parseFloat(promoRateInput) : null;
   if (!name) return alert('Please enter a card name');
   if (isNaN(bal)) return alert('Please enter a valid balance');
-  const data = { name, balance: bal, limit, rate, payment, starting, updatedAt: new Date().toISOString() };
+  const data = { name, balance: bal, limit, rate, payment, starting, promoEnd, postPromoRate, updatedAt: new Date().toISOString() };
   if (editingCardId) {
     await updateDoc(doc(db, 'creditCards', editingCardId), data);
   } else {
@@ -3637,6 +3666,8 @@ function editCard(id) {
   document.getElementById('card-rate').value = c.rate || '';
   document.getElementById('card-payment').value = c.payment || '';
   document.getElementById('card-starting').value = c.starting || '';
+  document.getElementById('card-promo-end').value = c.promoEnd || '';
+  document.getElementById('card-promo-rate').value = (c.postPromoRate != null) ? c.postPromoRate : '';
   openModal('card-modal');
 }
 
@@ -3647,6 +3678,43 @@ async function deleteCard() {
   closeModal('card-modal');
   await loadCards();
   renderCards();
+}
+
+// Returns the APR that applies to a card as of a given date (defaults to today).
+// Fully data-driven off the card's own fields — no hardcoded rates.
+function getEffectiveRate(c, atDate) {
+  atDate = atDate || new Date();
+  if (c.promoEnd) {
+    // promoEnd is stored as "YYYY-MM" (end of that statement month)
+    const [py, pm] = c.promoEnd.split('-').map(Number);
+    const promoEndDate = new Date(py, pm, 0); // last day of that month
+    if (atDate > promoEndDate) {
+      return (c.postPromoRate != null ? c.postPromoRate : (c.rate || 0));
+    }
+  }
+  return c.rate || 0;
+}
+
+// Simulates month-by-month amortization, switching rates automatically at promoEnd.
+// Returns { months, neverPaysOff } — more accurate than a single closed-form calc
+// when a promo rate is set to expire mid-payoff.
+function simulatePayoff(c) {
+  if (!(c.payment > 0 && c.balance > 0)) return null;
+  let bal = c.balance;
+  let simDate = new Date();
+  let months = 0;
+  const maxMonths = 600;
+  while (bal > 0 && months < maxMonths) {
+    const rate = getEffectiveRate(c, simDate);
+    const monthlyRate = (rate / 100) / 12;
+    const interest = bal * monthlyRate;
+    const principal = c.payment - interest;
+    if (principal <= 0) return { months: null, neverPaysOff: true };
+    bal -= principal;
+    months++;
+    simDate = new Date(simDate.getFullYear(), simDate.getMonth() + 1, simDate.getDate());
+  }
+  return bal <= 0 ? { months, neverPaysOff: false } : { months: null, neverPaysOff: true };
 }
 
 function renderCards() {
@@ -3679,16 +3747,24 @@ function renderCards() {
     const payoffPct = startBal > 0 ? Math.min(100, (paidOff / startBal) * 100) : 0;
     const payoffColor = payoffPct > 66 ? 'var(--accent)' : payoffPct > 33 ? '#e67e22' : 'var(--red)';
 
-    // Estimated payoff months
+    // Estimated payoff months (simulated so a scheduled promo-rate expiration is reflected)
     let monthsLeft = '—';
-    if (c.payment > 0 && c.balance > 0) {
-      if (c.rate > 0) {
-        const monthlyRate = (c.rate / 100) / 12;
-        const months = Math.ceil(-Math.log(1 - (c.balance * monthlyRate) / c.payment) / Math.log(1 + monthlyRate));
-        monthsLeft = months > 0 && isFinite(months) ? `${months} mo` : '—';
-      } else {
-        monthsLeft = `${Math.ceil(c.balance / c.payment)} mo`;
-      }
+    const payoffSim = simulatePayoff(c);
+    if (payoffSim) {
+      monthsLeft = payoffSim.months ? `${payoffSim.months} mo` : (payoffSim.neverPaysOff ? 'never' : '—');
+    }
+
+    // Promo rate status, if this card has a scheduled rate change
+    const effRateNow = getEffectiveRate(c, new Date());
+    let promoNote = '';
+    if (c.promoEnd) {
+      const [py, pm] = c.promoEnd.split('-').map(Number);
+      const promoEndDate = new Date(py, pm, 0);
+      const promoLabel = promoEndDate.toLocaleString('default',{month:'short',year:'numeric'});
+      const postRate = c.postPromoRate != null ? c.postPromoRate : c.rate;
+      promoNote = promoEndDate > new Date()
+        ? `<div style="font-size:10px;color:#e67e22;margin-top:2px;">Promo rate through ${promoLabel} statement → ${postRate}% after</div>`
+        : `<div style="font-size:10px;color:var(--text-muted);margin-top:2px;">Promo rate ended ${promoLabel}</div>`;
     }
 
     return `
@@ -3709,13 +3785,14 @@ function renderCards() {
           </div>
           <div>
             <div style="color:var(--text-muted);font-size:9px;text-transform:uppercase;letter-spacing:0.06em;">APR</div>
-            <div style="font-weight:500;">${c.rate ? `${c.rate}%` : '—'}</div>
+            <div style="font-weight:500;">${effRateNow ? `${effRateNow}%` : '—'}</div>
           </div>
           <div>
             <div style="color:var(--text-muted);font-size:9px;text-transform:uppercase;letter-spacing:0.06em;">Est. Payoff</div>
             <div style="font-weight:500;">${monthsLeft}</div>
           </div>
         </div>
+        ${promoNote}
 
         ${c.limit ? `
           <div>
