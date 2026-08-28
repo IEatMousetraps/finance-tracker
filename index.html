@@ -2031,20 +2031,20 @@ function renderCalendar() {
     const virtualBills = getBillsForDate(currentYear, currentMonth, d);
     const allDay = sortTxnsForDisplay([...txns.filter(t => t.status !== 'skipped'), ...virtualBills]);
     
-    // Cleared balance (completed only) — primary display on calendar
+    // Cleared balance (completed only) — actual money in the account through this day
     const clearedBal = calcRunningBalance(currentYear, currentMonth, d);
-    // Projected balance for THIS DAY ONLY (cleared balance + pending items on this specific day)
-    const dayPendingAmount = allDay
-      .filter(t => t.status !== 'completed')
-      .reduce((s, t) => s + t.amount, 0);
-    const projectedBal = clearedBal + dayPendingAmount;
+    // Projected balance — cleared balance PLUS every pending/expected txn and virtual
+    // recurring bill from START_DATE through this day (cumulative), so a charge that
+    // pended on an earlier day stays reflected on every day after it until it clears
+    const projectedBal = calcProjectedBalance(currentYear, currentMonth, d);
     const dayOut = allDay.filter(t => t.amount < 0 && t.status === 'completed').reduce((s,t) => s+t.amount, 0);
     const dayIn = allDay.filter(t => t.amount > 0 && t.status === 'completed').reduce((s,t) => s+t.amount, 0);
 
-    const hasPending = allDay.some(t => t.status !== 'completed');
-    // Show projected (cleared + today's pending) if there are pending items today, else cleared
+    // Any unresolved pending/expected amount upstream (today or earlier) means this
+    // day's true balance differs from the pure-cleared number — mark it as projected
+    const hasPending = Math.abs(projectedBal - clearedBal) > 0.001;
     const displayBal = hasPending ? projectedBal : clearedBal;
-    const isProjected = hasPending && Math.abs(dayPendingAmount) > 0.001;
+    const isProjected = hasPending;
     const balClass = displayBal < 0 ? 'negative' : '';
     
     let cls = 'day-cell';
