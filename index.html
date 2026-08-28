@@ -945,6 +945,17 @@
   </div>
 </div>
 
+<!-- CHARGE IMPACT MODAL -->
+<div class="modal-overlay" id="charge-impact-modal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <h3 style="margin-bottom:4px;">Payoff Impact</h3>
+    <p style="font-size:11px;color:var(--text-muted);margin-bottom:16px;">How this charge changes your payoff plan</p>
+    <div id="charge-impact-content"></div>
+    <button class="btn btn-secondary" id="btn-close-charge-impact-modal" style="margin-top:12px;">Close</button>
+  </div>
+</div>
+
 <!-- PENDING SUMMARY MODAL -->
 <div class="modal-overlay" id="pending-modal">
   <div class="modal">
@@ -1514,6 +1525,11 @@
       </select>
     </div>
     <div class="form-group">
+      <label>Linked Credit Card <span style="font-size:10px;color:var(--text-muted);font-weight:normal;">— optional</span></label>
+      <select id="bill-card"></select>
+      <p style="font-size:10px;color:var(--text-muted);margin-top:6px;">If this bill is a payment toward one of your cards, link it here so logging it always offers to record the payment on the CC Calendar too — no more guessing by name.</p>
+    </div>
+    <div class="form-group">
       <label>Effective From</label>
       <input type="date" id="bill-effective-date">
       <p style="font-size:10px;color:var(--text-muted);margin-top:6px;">Bill will only appear on dates on or after this date. Leave blank to start immediately.</p>
@@ -1631,6 +1647,7 @@
       <div class="form-group">
         <label>Current Balance ($)</label>
         <input type="number" step="0.01" id="card-balance" placeholder="0.00" inputmode="decimal">
+        <div style="font-size:10px;color:var(--text-muted);margin-top:3px;">Saving sets this as today's baseline — charges/payments you log on the CC Calendar will adjust it live from here forward.</div>
       </div>
       <div class="form-group">
         <label>Credit Limit ($)</label>
@@ -1800,6 +1817,7 @@ async function init() {
   await loadLoans();
   await loadBudgets();
   await loadCCTransactions();
+  refreshCardBalances();
   await loadTransactions();
   renderCalendar();
   renderBills();
@@ -2251,6 +2269,20 @@ function getCCTxnsForMonth(year, month) {
   return ccTransactions.filter(t => t.year === year && t.month === month);
 }
 
+// Bill's optional linked card — includes a "None" option, unlike populateCCCardSelect
+function populateBillCardSelect(selectedCardId = null) {
+  const sel = document.getElementById('bill-card');
+  if (!sel) return;
+  const noneOpt = '<option value="">— Not a card payment —</option>';
+  if (creditCards.length === 0) {
+    sel.innerHTML = noneOpt;
+    return;
+  }
+  sel.innerHTML = noneOpt + creditCards.map(c =>
+    `<option value="${c.id}" ${c.id === selectedCardId ? 'selected' : ''}>${c.name}</option>`
+  ).join('');
+}
+
 function populateCCCardSelect(selectId, selectedCardId = null) {
   const sel = document.getElementById(selectId);
   if (!sel) return;
@@ -2346,9 +2378,11 @@ async function saveCCTxn() {
 
   closeModal('cc-txn-modal');
   await loadCCTransactions();
+  refreshCardBalances();
   renderCCCalendar();
   updateCCBalanceBar();
   if (ccActiveDay) renderCCDayDetail(ccActiveDay);
+  if (ccTxnType === 'expense' && cardId) showChargeImpact(cardId, finalAmt);
 }
 
 async function deleteCCTxn() {
@@ -2357,6 +2391,7 @@ async function deleteCCTxn() {
   ccEditingTxnId = null;
   closeModal('cc-txn-modal');
   await loadCCTransactions();
+  refreshCardBalances();
   renderCCCalendar();
   updateCCBalanceBar();
 }
@@ -2425,6 +2460,7 @@ function renderCCDayDetail(day) {
 async function deleteCCTxnFromDay(id) {
   await deleteDoc(doc(db, 'ccTransactions', id));
   await loadCCTransactions();
+  refreshCardBalances();
   renderCCDayDetail(ccActiveDay);
   renderCCCalendar();
   updateCCBalanceBar();
@@ -2492,7 +2528,7 @@ function updateCCBalanceBar() {
   const out = monthTxns.filter(t=>t.amount<0&&t.status==='completed').reduce((s,t)=>s+t.amount,0);
   const inc = monthTxns.filter(t=>t.amount>0&&t.status==='completed').reduce((s,t)=>s+t.amount,0);
   const pend = monthTxns.filter(t=>t.status==='pending').reduce((s,t)=>s+t.amount,0);
-  const totalCC = creditCards.reduce((s,c)=>s+(c.balance||0),0);
+  const totalCC = creditCards.reduce((s,c)=>s+(c.currentBalance!=null?c.currentBalance:(c.balance||0)),0);
   document.getElementById('cc-bal-total').textContent = `$${totalCC.toFixed(2)}`;
   document.getElementById('cc-bal-out').textContent = `-$${Math.abs(out).toFixed(2)}`;
   document.getElementById('cc-bal-in').textContent = `+$${inc.toFixed(2)}`;
@@ -2706,7 +2742,7 @@ function openInsights() {
 
   // ── DEBT PAYDOWN SECTION ──────────────────────────────────────────────────
   const debtCards = [];
-  const totalCCDebt = creditCards.reduce((s,c) => s + (c.balance||0), 0);
+  const totalCCDebt = creditCards.reduce((s,c) => s + (c.currentBalance!=null?c.currentBalance:(c.balance||0)), 0);
   const totalLoanDebt = loans.reduce((s,l) => s + (l.balance||0), 0);
   const totalDebt = totalCCDebt + totalLoanDebt;
 
@@ -2764,7 +2800,7 @@ function openInsights() {
       // Pick the highest-interest CC or smallest balance loan for targeting
       let target = null;
       let targetType = '';
-      const highIntCC = [...creditCards].filter(c=>c.balance>0).sort((a,b)=>(getEffectiveRate(b)||0)-(getEffectiveRate(a)||0))[0];
+      const highIntCC = [...creditCards].filter(c=>(c.currentBalance!=null?c.currentBalance:c.balance)>0).sort((a,b)=>(getEffectiveRate(b)||0)-(getEffectiveRate(a)||0))[0];
       const highIntCCRate = highIntCC ? getEffectiveRate(highIntCC) : 0;
       const smallestLoan = [...loans].filter(l=>l.balance>0).sort((a,b)=>a.balance-b.balance)[0];
 
@@ -2779,8 +2815,9 @@ function openInsights() {
       if (target) {
         // Interest cost this week on the debt (uses effective rate for CCs, so a promo expiration is reflected automatically)
         const targetRate = target === highIntCC ? highIntCCRate : target.rate;
+        const targetBalance = target === highIntCC ? (highIntCC.currentBalance!=null?highIntCC.currentBalance:highIntCC.balance) : target.balance;
         const weeklyInterest = targetRate
-          ? ((target.balance * (targetRate / 100)) / 52).toFixed(2)
+          ? ((targetBalance * (targetRate / 100)) / 52).toFixed(2)
           : null;
 
         const interestNote = weeklyInterest
@@ -2801,17 +2838,18 @@ function openInsights() {
 
     // Specific paydown suggestion with math
     if (suggestedExtra >= 10) {
-      const highIntCC = [...creditCards].filter(c=>c.balance>0&&getEffectiveRate(c)>0).sort((a,b)=>getEffectiveRate(b)-getEffectiveRate(a))[0];
+      const highIntCC = [...creditCards].filter(c=>(c.currentBalance!=null?c.currentBalance:c.balance)>0&&getEffectiveRate(c)>0).sort((a,b)=>getEffectiveRate(b)-getEffectiveRate(a))[0];
       if (highIntCC) {
         const effRate = getEffectiveRate(highIntCC);
         const monthlyRate = (effRate / 100) / 12;
-        const currentMinPayment = highIntCC.payment || (highIntCC.balance * 0.02);
+        const highIntCCBalance = highIntCC.currentBalance != null ? highIntCC.currentBalance : highIntCC.balance;
+        const currentMinPayment = highIntCC.payment || (highIntCCBalance * 0.02);
         const withExtra = currentMinPayment + (suggestedExtra * 4); // monthly equivalent
         const currentMonths = currentMinPayment > 0
-          ? Math.ceil(-Math.log(1 - (highIntCC.balance * monthlyRate) / currentMinPayment) / Math.log(1 + monthlyRate))
+          ? Math.ceil(-Math.log(1 - (highIntCCBalance * monthlyRate) / currentMinPayment) / Math.log(1 + monthlyRate))
           : null;
         const fasterMonths = withExtra > 0
-          ? Math.ceil(-Math.log(1 - (highIntCC.balance * monthlyRate) / withExtra) / Math.log(1 + monthlyRate))
+          ? Math.ceil(-Math.log(1 - (highIntCCBalance * monthlyRate) / withExtra) / Math.log(1 + monthlyRate))
           : null;
 
         if (currentMonths && fasterMonths && currentMonths > fasterMonths && currentMonths < 600) {
@@ -2888,12 +2926,13 @@ async function getAIInsights() {
     }).join(', ');
 
   // Debt context for AI
-  const totalCCDebt2 = creditCards.reduce((s,c) => s + (c.balance||0), 0);
+  const totalCCDebt2 = creditCards.reduce((s,c) => s + (c.currentBalance!=null?c.currentBalance:(c.balance||0)), 0);
   const totalLoanDebt2 = loans.reduce((s,l) => s + (l.balance||0), 0);
   let debtContext = '';
   if (totalCCDebt2 > 0 || totalLoanDebt2 > 0) {
-    const ccLines = creditCards.filter(c=>c.balance>0).map(c => {
+    const ccLines = creditCards.filter(c=>(c.currentBalance!=null?c.currentBalance:c.balance)>0).map(c => {
       const effRate = getEffectiveRate(c);
+      const liveBal = c.currentBalance != null ? c.currentBalance : c.balance;
       let promoInfo = '';
       if (c.promoEnd) {
         const [py, pm] = c.promoEnd.split('-').map(Number);
@@ -2903,7 +2942,7 @@ async function getAIInsights() {
           ? ` (promo rate, jumps to ${c.postPromoRate != null ? c.postPromoRate : c.rate}% after ${promoLabel} statement)`
           : '';
       }
-      return `  ${c.name}: $${c.balance.toFixed(2)} balance${effRate ? ` at ${effRate}% APR` : ''}${promoInfo}`;
+      return `  ${c.name}: $${liveBal.toFixed(2)} balance${effRate ? ` at ${effRate}% APR` : ''}${promoInfo}`;
     }).join('\n');
     const loanLines = loans.filter(l=>l.balance>0).map(l =>
       `  ${l.name}: $${l.balance.toFixed(2)} remaining${l.rate ? ` at ${l.rate}%` : ''}`
@@ -3273,11 +3312,15 @@ function openLogBill(billId, day) {
     `${currentYear}-${String(currentMonth + 1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
   setLogStatus('completed');
 
-  // Check if bill name matches a credit card — offer to mirror as CC payment
-  const matchedCard = creditCards.find(c =>
-    bill.name.toLowerCase().includes(c.name.toLowerCase()) ||
-    c.name.toLowerCase().includes(bill.name.toLowerCase())
-  );
+  // Prefer an explicit link (set on the bill itself) — reliable regardless of naming.
+  // Falls back to fuzzy name matching only for older bills that haven't been linked yet.
+  let matchedCard = bill.cardId ? creditCards.find(c => c.id === bill.cardId) : null;
+  if (!matchedCard) {
+    matchedCard = creditCards.find(c =>
+      bill.name.toLowerCase().includes(c.name.toLowerCase()) ||
+      c.name.toLowerCase().includes(bill.name.toLowerCase())
+    );
+  }
   const mirrorEl = document.getElementById('log-bill-cc-mirror');
   if (matchedCard && !isIncome) {
     mirrorEl.style.display = '';
@@ -3339,6 +3382,7 @@ async function confirmLogBill() {
       createdAt: new Date().toISOString()
     });
     await loadCCTransactions();
+    refreshCardBalances();
   }
 
   loggingBillId = null;
@@ -3582,6 +3626,7 @@ function openAddBill() {
   document.getElementById('bill-interval').value = '1';
   document.getElementById('bill-effective-date').value = '';
   document.getElementById('bill-category').value = 'housing';
+  populateBillCardSelect(null);
   setBillType('expense');
   setBillFrequency('monthly');
   openModal('bill-modal');
@@ -3591,6 +3636,8 @@ async function saveBill() {
   const name = document.getElementById('bill-name').value.trim();
   const amt = parseFloat(document.getElementById('bill-amount').value);
   const cat = document.getElementById('bill-category').value;
+  const cardId = document.getElementById('bill-card').value || null;
+  const cardName = cardId ? (creditCards.find(c => c.id === cardId)?.name || null) : null;
   const effectiveDate = document.getElementById('bill-effective-date').value || null;
   const frequency = document.getElementById('freq-weekly').classList.contains('selected') ? 'weekly' : 'monthly';
   const type = billType; // 'expense' or 'income'
@@ -3602,11 +3649,11 @@ async function saveBill() {
   if (frequency === 'weekly') {
     const weekday = parseInt(document.getElementById('bill-weekday').value);
     const interval = parseInt(document.getElementById('bill-interval').value) || 1;
-    data = { name, amount: amt, category: cat, frequency: 'weekly', weekday, interval, effectiveDate, type };
+    data = { name, amount: amt, category: cat, frequency: 'weekly', weekday, interval, effectiveDate, type, cardId, cardName };
   } else {
     const day = parseInt(document.getElementById('bill-day').value);
     if (isNaN(day) || day < 1 || day > 31) return alert('Please enter a valid day (1-31)');
-    data = { name, amount: amt, category: cat, frequency: 'monthly', day, effectiveDate, type };
+    data = { name, amount: amt, category: cat, frequency: 'monthly', day, effectiveDate, type, cardId, cardName };
   }
 
   if (editingBillId) {
@@ -3629,6 +3676,7 @@ function editBill(id) {
   document.getElementById('bill-name').value = b.name;
   document.getElementById('bill-amount').value = b.amount;
   document.getElementById('bill-category').value = b.category;
+  populateBillCardSelect(b.cardId || null);
   document.getElementById('bill-effective-date').value = b.effectiveDate || '';
   setBillType(b.type || 'expense');
   if (b.frequency === 'weekly') {
@@ -3680,7 +3728,7 @@ function renderBills() {
     const freqStr = isWeekly
       ? `Every ${(b.interval || 1) > 1 ? `${b.interval} weeks on ` : ''}${dayNames[b.weekday]}`
       : `Due on the ${b.day}${ordinal(b.day)} each month`;
-    const meta = freqStr + effectiveStr;
+    const meta = freqStr + effectiveStr + (b.cardId ? ` · 💳 ${b.cardName || 'linked card'}` : '');
     const amountDisplay = isIncome
       ? `<span class="bill-amount" style="color:var(--green);">+$${b.amount.toFixed(2)}</span>`
       : `<span class="bill-amount">-$${b.amount.toFixed(2)}</span>`;
@@ -3738,7 +3786,9 @@ async function saveCard() {
   const postPromoRate = promoRateInput !== '' ? parseFloat(promoRateInput) : null;
   if (!name) return alert('Please enter a card name');
   if (isNaN(bal)) return alert('Please enter a valid balance');
-  const data = { name, balance: bal, limit, rate, payment, starting, promoEnd, postPromoRate, updatedAt: new Date().toISOString() };
+  // Saving a card is a "sync to statement" moment — this balance becomes the new
+  // baseline, dated today, and CC Calendar activity from here forward adjusts it live.
+  const data = { name, balance: bal, balanceSyncDate: new Date().toISOString().slice(0, 10), limit, rate, payment, starting, promoEnd, postPromoRate, updatedAt: new Date().toISOString() };
   if (editingCardId) {
     await updateDoc(doc(db, 'creditCards', editingCardId), data);
   } else {
@@ -3746,6 +3796,7 @@ async function saveCard() {
   }
   closeModal('card-modal');
   await loadCards();
+  refreshCardBalances();
   renderCards();
 }
 
@@ -3756,7 +3807,10 @@ function editCard(id) {
   document.getElementById('card-modal-title').textContent = 'Edit Card';
   document.getElementById('delete-card-btn').style.display = '';
   document.getElementById('card-name').value = c.name;
-  document.getElementById('card-balance').value = c.balance;
+  // Prefill with the LIVE computed balance (baseline + CC Calendar activity since
+  // last sync), not the stale stored baseline — so what you see is what you'd expect,
+  // and saving as-is just re-confirms today as the new sync point.
+  document.getElementById('card-balance').value = (c.currentBalance != null ? c.currentBalance : getCardBalance(c)).toFixed(2);
   document.getElementById('card-limit').value = c.limit || '';
   document.getElementById('card-rate').value = c.rate || '';
   document.getElementById('card-payment').value = c.payment || '';
@@ -3772,7 +3826,100 @@ async function deleteCard() {
   editingCardId = null;
   closeModal('card-modal');
   await loadCards();
+  refreshCardBalances();
   renderCards();
+}
+
+// ── LIVE CARD BALANCE ─────────────────────────────────────────────────────────
+// A card's stored `balance` field is a baseline as of `balanceSyncDate` (the last
+// time you told the app "this matches my statement"). From that point forward,
+// charges and payments logged on the CC Calendar for that card adjust the balance
+// live, so you don't have to manually retype a new number every time you charge
+// something. If a card has never been synced (legacy cards, or ones just added),
+// `balanceSyncDate` defaults to today — meaning no historical CC Calendar entries
+// retroactively shift the number, only ones logged from here forward will.
+function getCardBalance(c) {
+  const baseline = c.balance || 0;
+  let syncInt;
+  if (c.balanceSyncDate) {
+    const [sy, sm, sd] = c.balanceSyncDate.split('-').map(Number);
+    syncInt = sy * 10000 + (sm - 1) * 100 + sd;
+  } else {
+    const t = new Date();
+    syncInt = t.getFullYear() * 10000 + t.getMonth() * 100 + t.getDate();
+  }
+  let bal = baseline;
+  for (const t of ccTransactions) {
+    if (t.cardId !== c.id) continue;
+    if (t.status === 'skipped') continue;
+    const tInt = t.year * 10000 + t.month * 100 + t.day;
+    if (tInt <= syncInt) continue;
+    bal -= t.amount; // expense amounts are negative (raises balance), payments positive (lowers it)
+  }
+  return bal;
+}
+
+// After a charge is logged on the CC Calendar, shows what it does to that card's
+// payoff plan: the new balance, the new payoff date, what payment would be needed
+// to hold the ORIGINAL payoff date, and how much extra interest the charge adds
+// if the payment doesn't change. Silently does nothing if the card has no
+// rate/payment set — there's nothing to simulate without those.
+function showChargeImpact(cardId, chargeAmt) {
+  const c = creditCards.find(cc => cc.id === cardId);
+  if (!c || !(c.payment > 0)) return;
+
+  const balanceAfter = c.currentBalance != null ? c.currentBalance : getCardBalance(c);
+  const balanceBefore = balanceAfter + chargeAmt; // chargeAmt is negative for a charge
+
+  const simBefore = simulatePayoffDetailed(c, balanceBefore);
+  const simAfter = simulatePayoffDetailed(c, balanceAfter);
+
+  const fmtMonth = (months) => {
+    if (months == null) return null;
+    const d = new Date();
+    d.setMonth(d.getMonth() + months);
+    return d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  };
+
+  let paymentToHold = null;
+  if (simBefore && !simBefore.neverPaysOff) {
+    paymentToHold = paymentNeededForMonths(c, balanceAfter, simBefore.months);
+  }
+
+  let extraInterest = null;
+  if (simBefore && simAfter && simBefore.totalInterest != null && simAfter.totalInterest != null) {
+    extraInterest = simAfter.totalInterest - simBefore.totalInterest;
+  }
+
+  const rows = [];
+  rows.push(`<div class="stat-item"><span class="stat-val" style="color:var(--red)">$${balanceAfter.toFixed(2)}</span><span class="stat-label">New Balance</span></div>`);
+
+  if (!simAfter) {
+    rows.push(`<div style="font-size:12px;color:var(--text-muted);margin-top:6px;">Add an APR and minimum payment to this card in the Cards page to see payoff impact.</div>`);
+  } else if (simAfter.neverPaysOff) {
+    rows.push(`<div style="color:var(--red);font-size:13px;margin-top:8px;">At the current $${c.payment.toFixed(2)}/mo payment, this card won't pay off — interest now outpaces what's being paid toward it.</div>`);
+  } else {
+    rows.push(`<div class="stat-item"><span class="stat-val">${fmtMonth(simAfter.months)}</span><span class="stat-label">New Payoff Date</span></div>`);
+    if (paymentToHold != null) {
+      rows.push(`<div class="stat-item"><span class="stat-val">$${paymentToHold.toFixed(2)}/mo</span><span class="stat-label">To hold your original payoff date</span></div>`);
+    }
+    if (extraInterest != null && extraInterest > 0.005) {
+      rows.push(`<div class="stat-item"><span class="stat-val" style="color:var(--red)">+$${extraInterest.toFixed(2)}</span><span class="stat-label">Extra interest this charge adds</span></div>`);
+    }
+  }
+
+  document.getElementById('charge-impact-content').innerHTML = `
+    <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px;">${c.name} — charge of $${Math.abs(chargeAmt).toFixed(2)}</div>
+    <div style="display:flex;flex-wrap:wrap;gap:16px;">${rows.join('')}</div>
+  `;
+  openModal('charge-impact-modal');
+}
+
+// Recomputes `currentBalance` (the live number) on every card in memory. Call this
+// any time creditCards or ccTransactions changes. Leaves the stored `balance`
+// field (the sync baseline) untouched — that only changes when a card is saved.
+function refreshCardBalances() {
+  creditCards.forEach(c => { c.currentBalance = getCardBalance(c); });
 }
 
 // Returns the APR that applies to a card as of a given date (defaults to today).
@@ -3791,25 +3938,57 @@ function getEffectiveRate(c, atDate) {
 }
 
 // Simulates month-by-month amortization, switching rates automatically at promoEnd.
-// Returns { months, neverPaysOff } — more accurate than a single closed-form calc
-// when a promo rate is set to expire mid-payoff.
-function simulatePayoff(c) {
-  if (!(c.payment > 0 && c.balance > 0)) return null;
-  let bal = c.balance;
+// Returns { months, neverPaysOff, totalInterest } — more accurate than a single
+// closed-form calc when a promo rate is set to expire mid-payoff, and tracks total
+// interest paid so callers can compare scenarios (e.g. "with vs without this charge").
+// `balanceOverride` lets callers simulate against a hypothetical balance/payment
+// instead of the card's live current balance — used for charge-impact estimates.
+function simulatePayoffDetailed(c, balanceOverride) {
+  const startBal = balanceOverride != null ? balanceOverride : (c.currentBalance != null ? c.currentBalance : getCardBalance(c));
+  if (!(c.payment > 0 && startBal > 0)) return null;
+  let bal = startBal;
   let simDate = new Date();
   let months = 0;
+  let totalInterest = 0;
   const maxMonths = 600;
   while (bal > 0 && months < maxMonths) {
     const rate = getEffectiveRate(c, simDate);
     const monthlyRate = (rate / 100) / 12;
     const interest = bal * monthlyRate;
     const principal = c.payment - interest;
-    if (principal <= 0) return { months: null, neverPaysOff: true };
+    if (principal <= 0) return { months: null, neverPaysOff: true, totalInterest: null };
     bal -= principal;
+    totalInterest += interest;
     months++;
     simDate = new Date(simDate.getFullYear(), simDate.getMonth() + 1, simDate.getDate());
   }
-  return bal <= 0 ? { months, neverPaysOff: false } : { months: null, neverPaysOff: true };
+  return bal <= 0 ? { months, neverPaysOff: false, totalInterest } : { months: null, neverPaysOff: true, totalInterest: null };
+}
+
+// Thin wrapper kept for existing call sites that only care about months/neverPaysOff.
+function simulatePayoff(c) {
+  const d = simulatePayoffDetailed(c);
+  return d ? { months: d.months, neverPaysOff: d.neverPaysOff } : null;
+}
+
+// Binary-searches for the monthly payment that pays off `balance` within
+// `targetMonths`, respecting the card's rate schedule (including promo switches).
+// Used to answer "what would I need to pay to hold my original payoff date?"
+function paymentNeededForMonths(c, balance, targetMonths) {
+  if (!targetMonths || targetMonths <= 0 || !(balance > 0)) return null;
+  const monthsFor = (pmt) => {
+    const r = simulatePayoffDetailed(Object.assign({}, c, { payment: pmt }), balance);
+    return (r && !r.neverPaysOff) ? r.months : Infinity;
+  };
+  let lo = balance / targetMonths; // floor: paying purely principal, ignoring interest
+  let hi = Math.max(lo * 3, lo + 50);
+  let guard = 0;
+  while (monthsFor(hi) > targetMonths && guard < 40) { hi *= 1.5; guard++; }
+  for (let i = 0; i < 50; i++) {
+    const mid = (lo + hi) / 2;
+    if (monthsFor(mid) <= targetMonths) hi = mid; else lo = mid;
+  }
+  return hi;
 }
 
 // ── CARD REWARDS / BEST CARD ──────────────────────────────────────────────────
@@ -4184,7 +4363,7 @@ function renderCards() {
     grid.innerHTML = `<div class="empty-state"><div class="icon">💳</div>No cards added yet</div>`;
     return;
   }
-  const totalBal = creditCards.reduce((s,c) => s + (c.balance||0), 0);
+  const totalBal = creditCards.reduce((s,c) => s + (c.currentBalance!=null?c.currentBalance:(c.balance||0)), 0);
   const totalPayment = creditCards.reduce((s,c) => s + (c.payment||0), 0);
   grid.innerHTML = `
     <div style="padding:14px;background:var(--red-light);border-radius:var(--radius);margin-bottom:8px;border:1px solid #f0b0a8;display:flex;gap:24px;flex-wrap:wrap;">
@@ -4198,13 +4377,14 @@ function renderCards() {
       </div>` : ''}
     </div>
   ` + creditCards.map(c => {
+    const liveBal = c.currentBalance != null ? c.currentBalance : (c.balance || 0);
     // Utilization bar (balance vs limit)
-    const utilPct = c.limit ? Math.min(100, (c.balance / c.limit) * 100) : 0;
+    const utilPct = c.limit ? Math.min(100, (liveBal / c.limit) * 100) : 0;
     const utilColor = utilPct > 80 ? 'var(--red)' : utilPct > 50 ? '#e67e22' : 'var(--accent)';
 
     // Payoff progress bar (starting balance vs current)
     const startBal = c.starting || 0;
-    const paidOff = startBal > 0 ? Math.max(0, startBal - c.balance) : 0;
+    const paidOff = startBal > 0 ? Math.max(0, startBal - liveBal) : 0;
     const payoffPct = startBal > 0 ? Math.min(100, (paidOff / startBal) * 100) : 0;
     const payoffColor = payoffPct > 66 ? 'var(--accent)' : payoffPct > 33 ? '#e67e22' : 'var(--red)';
 
@@ -4234,7 +4414,7 @@ function renderCards() {
           <div class="cc-logo">${c.name.substring(0,3).toUpperCase()}</div>
           <div class="cc-info" style="flex:1;">
             <div class="cc-name">${c.name}</div>
-            <div class="cc-balance">$${(c.balance||0).toFixed(2)}</div>
+            <div class="cc-balance">$${liveBal.toFixed(2)}</div>
           </div>
           <button class="icon-btn" onclick="editCard('${c.id}')">✏️</button>
         </div>
@@ -4604,6 +4784,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Pending summary
   document.getElementById('pending-summary-trigger').addEventListener('click', () => openPendingSummary());
   document.getElementById('btn-close-pending-modal').addEventListener('click', () => closeModal('pending-modal'));
+  document.getElementById('btn-close-charge-impact-modal').addEventListener('click', () => closeModal('charge-impact-modal'));
 
   // FAB
   document.getElementById('fab').addEventListener('click', () => openAddTransaction());
