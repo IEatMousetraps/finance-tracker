@@ -1951,8 +1951,16 @@ function getBillsForDate(year, month, day) {
   });
 
   const existing = getTxnsForDate(year, month, day);
+  // For monthly (day-of-month) bills, also check the WHOLE month for a matching
+  // real transaction — not just this exact day. Bills that post late (paid on the
+  // 17th instead of the scheduled 5th, say) shouldn't keep showing as a phantom
+  // pending charge just because nothing landed on the exact scheduled date.
+  const monthTxns = getTxnsForMonth(year, month);
   return bills.filter(b => {
-    return !existing.some(t => t.description === b.name && t.recurringBillId === b.id);
+    if (b.frequency === 'weekly') {
+      return !existing.some(t => t.description === b.name && t.recurringBillId === b.id);
+    }
+    return !monthTxns.some(t => t.recurringBillId === b.id);
   }).map(b => ({
     id: 'bill_' + b.id + '_' + day,
     description: b.name,
