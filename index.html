@@ -914,6 +914,7 @@
     <button class="nav-btn" id="nav-forecast">Forecast</button>
     <button class="nav-btn" id="nav-cards">Cards</button>
     <button class="nav-btn" id="nav-loans">Loans</button>
+    <button class="nav-btn" id="nav-debtfree">Debt Free</button>
     <button class="nav-btn" id="nav-bestcard">Best Card</button>
     <button class="nav-btn" id="nav-settings">⚙️ Settings</button>
   </div>
@@ -1082,6 +1083,15 @@
     <div class="cc-grid" id="loan-grid">
       <div class="empty-state"><div class="icon">🏦</div>No loans added yet</div>
     </div>
+  </main>
+</div>
+
+<!-- DEBT FREE VIEW -->
+<div id="view-debtfree" style="display:none;">
+  <main>
+    <h2 class="section-title" style="border:none;margin:0 0 4px;">Debt-Free Dates</h2>
+    <p style="font-size:12px;color:var(--text-muted);margin-bottom:16px;">When each card and loan reaches $0, soonest first.</p>
+    <div class="cc-grid" id="debtfree-grid"></div>
   </main>
 </div>
 
@@ -2231,7 +2241,7 @@ function goToToday() {
 }
 
 function switchView(view) {
-  ['calendar','cc-calendar','reports','forecast','cards','loans','bestcard','settings'].forEach(v => {
+  ['calendar','cc-calendar','reports','forecast','cards','loans','debtfree','bestcard','settings'].forEach(v => {
     document.getElementById('view-' + v).style.display = v === view ? '' : 'none';
     document.getElementById('nav-' + v)?.classList.toggle('active', v === view);
   });
@@ -2242,6 +2252,7 @@ function switchView(view) {
   if (view === 'reports') renderReports();
   if (view === 'cc-calendar') { renderCCCalendar(); updateCCBalanceBar(); }
   if (view === 'forecast') initForecast();
+  if (view === 'debtfree') renderDebtFree();
   if (view === 'bestcard') initBestCard();
   if (view === 'settings') { renderCardRewardsSettings(); renderRewardCardsList(); }
 }
@@ -4612,6 +4623,148 @@ function renderLoans() {
   }).join('');
 }
 
+// ── DEBT FREE DATES ───────────────────────────────────────────────────────────
+// Projects a payoff month for every card and loan using simulatePayoffDetailed(),
+// the same engine as the Cards tab, so promo-rate expirations are included. Each
+// debt is projected on its own: current balance, current monthly payment, no new
+// charges, and no rollover of freed-up payments from debts that finish earlier.
+function renderDebtFree() {
+  const grid = document.getElementById('debtfree-grid');
+  const now = new Date();
+  const money = (n) => `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  // Anchored to the 1st so adding months can't overflow on the 29th–31st.
+  const dateAfter = (months) => new Date(now.getFullYear(), now.getMonth() + months, 1);
+  const fmtDate = (d) => d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
+  const debts = [
+    ...creditCards.map(c => ({ source: c, kind: 'Card', balance: c.currentBalance != null ? c.currentBalance : getCardBalance(c) })),
+    ...loans.map(l => ({ source: l, kind: 'Loan', balance: l.balance || 0 }))
+  ];
+
+  if (debts.length === 0) {
+    grid.innerHTML = `<div class="empty-state"><div class="icon">🎉</div>No cards or loans added yet</div>`;
+    return;
+  }
+
+  const paidOff = debts.filter(d => d.balance <= 0);
+  const active = debts.filter(d => d.balance > 0).map(d => {
+    const sim = simulatePayoffDetailed(d.source, d.balance);
+    const scheduled = !!(sim && !sim.neverPaysOff);
+    return {
+      ...d,
+      months: scheduled ? sim.months : null,
+      interest: scheduled ? sim.totalInterest : null,
+      date: scheduled ? dateAfter(sim.months) : null,
+      problem: scheduled ? null : (sim ? 'neverPaysOff' : 'noPayment')
+    };
+  });
+
+  const scheduled = active.filter(d => d.date).sort((a, b) => a.months - b.months || a.source.name.localeCompare(b.source.name));
+  const blocked = active.filter(d => !d.date);
+  const totalOwed = active.reduce((s, d) => s + d.balance, 0);
+  const totalInterest = scheduled.reduce((s, d) => s + d.interest, 0);
+  const lastDate = scheduled.length ? scheduled[scheduled.length - 1].date : null;
+
+  // Summary
+  let heroValue, heroNote;
+  if (active.length === 0) {
+    heroValue = 'You did it!';
+    heroNote = 'Every card and loan here is at $0.';
+  } else if (blocked.length > 0) {
+    heroValue = 'Not known yet';
+    heroNote = `${blocked.length} ${blocked.length === 1 ? 'debt needs' : 'debts need'} attention below before the full date can be worked out.`;
+  } else {
+    heroValue = fmtDate(lastDate);
+    heroNote = `${scheduled[scheduled.length - 1].source.name} is the last one to finish.`;
+  }
+  const statLabel = (t) => `<div style="font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:var(--text-muted);">${t}</div>`;
+  const summary = `
+    <div style="padding:14px;background:var(--green-light);border-radius:var(--radius);margin-bottom:8px;border:1px solid var(--green);">
+      ${statLabel('Completely debt free')}
+      <div style="font-family:var(--serif);font-size:26px;color:var(--green);font-weight:600;">${heroValue}</div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${heroNote}</div>
+      ${active.length > 0 ? `
+        <div style="display:flex;gap:24px;flex-wrap:wrap;margin-top:12px;">
+          <div>${statLabel('Total owed')}<div style="font-size:15px;font-weight:500;">${money(totalOwed)}</div></div>
+          ${scheduled.length > 0 ? `<div>${statLabel(blocked.length > 0 ? 'Interest left (dated debts)' : 'Interest left')}<div style="font-size:15px;font-weight:500;">${money(totalInterest)}</div></div>` : ''}
+        </div>` : ''}
+    </div>`;
+
+  const detailCell = (label, value) => `
+    <div>
+      <div style="color:var(--text-muted);font-size:9px;text-transform:uppercase;letter-spacing:0.06em;">${label}</div>
+      <div style="font-weight:500;">${value}</div>
+    </div>`;
+
+  const notesFor = (d) => {
+    const s = d.source;
+    const notes = [];
+    if (s.promoEnd) {
+      const [py, pm] = s.promoEnd.split('-').map(Number);
+      const promoEndDate = new Date(py, pm, 0);
+      if (promoEndDate > now) {
+        const postRate = s.postPromoRate != null ? s.postPromoRate : s.rate;
+        const reachesRateChange = !d.date || d.date > promoEndDate;
+        notes.push(`<div style="font-size:10px;color:${reachesRateChange ? '#e67e22' : 'var(--text-muted)'};">Promo rate through ${promoEndDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}, then ${postRate}%${reachesRateChange ? ' — this date includes that increase' : ''}</div>`);
+      }
+    }
+    // Loan balances are typed in by hand, so they don't move until the loan is edited.
+    if (d.kind === 'Loan' && s.updatedAt) {
+      const updated = new Date(s.updatedAt);
+      const isStale = (now - updated) / 86400000 > 35;
+      notes.push(`<div style="font-size:10px;color:${isStale ? '#e67e22' : 'var(--text-muted)'};">Balance last updated ${updated.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}${isStale ? ' — update it on the Loans tab for an accurate date' : ''}</div>`);
+    }
+    return notes.join('');
+  };
+
+  const row = (d) => {
+    const s = d.source;
+    const rateNow = getEffectiveRate(s, now);
+    let headline, sub;
+    if (d.date) {
+      headline = `<div style="font-family:var(--serif);font-size:20px;color:var(--green);font-weight:600;white-space:nowrap;">${fmtDate(d.date)}</div>`;
+      sub = `<div style="font-size:10px;color:var(--text-muted);text-align:right;">${d.months} ${d.months === 1 ? 'month' : 'months'} from now</div>`;
+    } else {
+      headline = `<div style="font-family:var(--serif);font-size:20px;color:var(--red);font-weight:600;white-space:nowrap;">No date</div>`;
+      sub = '';
+    }
+    const problem = d.problem === 'noPayment'
+      ? `<div style="font-size:11px;color:var(--red);">No monthly payment is set. Add one on the ${d.kind === 'Card' ? 'Cards' : 'Loans'} tab to get a date.</div>`
+      : d.problem === 'neverPaysOff'
+        ? `<div style="font-size:11px;color:var(--red);">At ${money(s.payment)}/mo, interest outpaces the payment, so this never reaches $0.</div>`
+        : '';
+    return `
+      <div class="cc-card" style="flex-direction:column;align-items:stretch;gap:10px;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">
+          <div class="cc-info">
+            <div class="cc-name">${s.name}</div>
+            <div style="font-size:10px;color:var(--text-muted);">${d.kind}</div>
+          </div>
+          <div style="margin-left:auto;text-align:right;">${headline}${sub}</div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;font-size:11px;">
+          ${detailCell('Balance', money(d.balance))}
+          ${detailCell('Payment', s.payment ? `${money(s.payment)}/mo` : '—')}
+          ${detailCell('Rate', `${rateNow}%`)}
+          ${detailCell('Interest Left', d.interest != null ? money(d.interest) : '—')}
+        </div>
+        ${problem}${notesFor(d)}
+      </div>`;
+  };
+
+  const paidOffNote = paidOff.length > 0 ? `
+    <div style="padding:12px 14px;background:var(--green-light);border-radius:var(--radius);font-size:12px;">
+      <span style="font-weight:500;color:var(--green);">✓ Already at $0:</span> ${paidOff.map(d => d.source.name).join(', ')}
+    </div>` : '';
+
+  const footnote = active.length > 0 ? `
+    <div style="font-size:11px;color:var(--text-muted);line-height:1.5;margin-top:4px;">
+      These dates assume you keep paying each debt's listed payment and add no new charges. Freed-up payments aren't moved to other debts, so extra payments can beat these dates. Only debts added on the Cards and Loans tabs are included.
+    </div>` : '';
+
+  grid.innerHTML = summary + blocked.map(row).join('') + scheduled.map(row).join('') + paidOffNote + footnote;
+}
+
 // ── UI HELPERS ────────────────────────────────────────────────────────────────
 function setType(type) {
   txnType = type;
@@ -4736,6 +4889,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('nav-forecast').addEventListener('click', () => switchView('forecast'));
   document.getElementById('nav-cards').addEventListener('click', () => switchView('cards'));
   document.getElementById('nav-loans').addEventListener('click', () => switchView('loans'));
+  document.getElementById('nav-debtfree').addEventListener('click', () => switchView('debtfree'));
   document.getElementById('nav-bestcard').addEventListener('click', () => switchView('bestcard'));
   document.getElementById('btn-find-best-card').addEventListener('click', runBestCardCalc);
   document.getElementById('nav-settings').addEventListener('click', () => switchView('settings'));
